@@ -14,7 +14,7 @@ Every gameplay rule the player relies on is written in the README and behaves ex
 - **Dropped dies:** they score 250, 500, 750, then 1000 per wave, plus 500 for a mid-air catch. An uncollected die reboots after about 6–11.5 s into the next enemy tier.
 - **Waves:** bosses on waves 3, 6, 9 and 12 (Jensen). Egg waves every 5th wave. Survival waves on waves 2, 7, 17 and so on. The bridge melts from wave 4. In endless mode a boss rematch comes every 4th wave.
 - **Extra life:** one every 20,000 points.
-- **Thrown lance:** flies straight for 0.75 s at 600 px/s, then falls. It passes through minions, and the nth kill in one throw scores n × the minion's points. It stops in a boss for one hit. A kill after the lance wraps the screen adds +1000. Catching it in mid-air scores +250. A beak hit on the Wyvern scores +1500. In lava it is replaced after 5 s. Until the player has a lance again, any contact with a rider costs a life. Losing a life restores the lance.
+- **Thrown lances:** the player carries 5 per life and throws with `W` (0.22 s minimum between throws). Each lance flies straight for 0.75 s at 600 px/s, then falls. It passes through minions, and the nth kill in one throw scores n × the minion's points. It stops in a boss for one hit. A kill after the lance wraps the screen adds +1000. Catching it in mid-air scores +250. A beak hit on the Wyvern scores +1500. A lance lost in lava is returned 5 s later. The player collects lances by touching them, up to 5. With at least one lance in hand the height rule applies as normal; with none, any contact with a rider costs a life. Losing a life restores all 5.
 
 Networking jokes in the game may be playful, but anything stated as a networking fact must be accurate. Fictional themes may decorate a rule; they must not hide or change it.
 
@@ -22,7 +22,7 @@ Networking jokes in the game may be playful, but anything stated as a networking
 
 ## C2 · Momentum and lance height are the core decision
 
-Every fight is decided by position: the height rule when jousting, aim and lance height when throwing. The only projectile is the player's own lance, and throwing it leaves the player unarmed until they pick it up. Each throw therefore trades safety for reach, and it never replaces the height rule. Each boss special move gets a visible warning or a readable opening: Elon's "!" before he dashes, Bill's fade-out before he teleports, and each boss's low cruise phase between chases. A death must always be explainable by the height rule, being unplugged, or a documented hazard (lava, the Hype Wyvern).
+Every fight is decided by position: the height rule when jousting, aim and lance height when throwing. The only projectiles are the player's own lances (5 per life), and throwing the last one leaves the player unarmed until they pick one up. Each throw therefore trades safety for reach, and it never replaces the height rule. Each boss special move gets a visible warning or a readable opening: Elon's "!" before he dashes, Bill's fade-out before he teleports, and each boss's low cruise phase between chases. A death must always be explainable by the height rule, being unplugged, or a documented hazard (lava, the Hype Wyvern).
 
 **Evidence:** a playthrough in which each boss is beaten using only the openings described in the README.
 
@@ -106,3 +106,4 @@ For any material change, record the reason here, update the README, and re-check
   - C1 lists the throw rules.
   - C8 allows the browser's generic text-to-speech voice for the announcer.
   - The README documents the throw rules, name tags, bottom roster and boss announcement.
+- **2026-11-17: throw on W, 5 lances.** Owner request, in the owner's words: "change the weapon and lance to the w key and then give 5 lances". `W` now throws instead of flapping (flap stays on `Space`/`↑`). The player carries 5 lances per life, collects thrown ones, and is unarmed only when holding none. C1, C2 and the README are updated to match. The headless smoke run was re-run and all 17 checks passed in 20 of 20 runs. Nobody has played it in a real browser yet.

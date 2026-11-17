@@ -50,8 +50,8 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 | Action | Keyboard | Touch |
 |---|---|---|
 | Steer | `←` `→` or `A` `D` | ◀ ▶ buttons |
-| Flap | `Space`, `↑`, `W` (tap it, don't hold) | FLAP button |
-| Throw lance | `X` or `Shift` | THROW button |
+| Flap | `Space` or `↑` (tap it, don't hold) | FLAP button |
+| Throw lance | `W` (also `X` or `Shift`) | THROW button |
 | Pause | `P` / `Esc` | tap the screen |
 | Mute | `M` | — |
 
@@ -66,19 +66,20 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 
 ### Throwing your lance
 
-Your patch-cable lance is also your one and only projectile. Throwing it is a gamble.
+You carry **5 patch-cable lances** per life, shown as glowing plugs next to your score. Every throw uses one, so ammo is the gamble.
 
-1. **Let it fly.** `X` or `Shift` hurls the lance straight ahead at lance height. It flies for about ¾ of a second, roughly half the screen, then drops. If it hits a platform, it thunks off and falls.
-2. **You're UNPLUGGED.** Until you get it back, you have no lance. Touching any enemy or boss costs you a life, even if you're higher. Your name tag turns red and reads `YOU · UNPLUGGED`. You can still stomp rebooting dies and collect dies.
-3. **Go get it.** A lance on the ground shows a bobbing `GRAB ME` tag. Touch it to plug back in.
-4. **Daisy chain.** One throw goes through every minion in its path. The 1st scores normally, the 2nd double, the 3rd triple, and so on.
-5. **Bullseye.** A thrown lance that hits a boss takes off one health bar (+500), same as a joust, then falls.
-6. **Around the world.** If the lance flies off one edge and wraps around, every kill it makes after that adds +1000.
-7. **Hot swap.** Catch your own lance before it lands for +250.
-8. **Nothing but beak.** Throw it into the Hype Wyvern's open beak (facing it) for +1500.
-9. **Lava eats lances.** If it falls into the lava, a replacement arrives in 5 seconds. Your tag counts down `RMA 5…4…`. You're unplugged until it arrives.
+1. **Let it fly.** `W` hurls a lance straight ahead at lance height. It flies for about ¾ of a second, roughly half the screen, then drops. If it hits a platform, it thunks off and falls.
+2. **Still holding one? Still jousting.** While you have at least one lance, the higher-lance rule works as normal.
+3. **Empty = UNPLUGGED.** Throw all 5 and you have no lance. Touching any enemy or boss then costs you a life, even if you're higher. Your name tag turns red and the meter flashes `UNPLUGGED`. You can still stomp rebooting dies and collect dies.
+4. **Go get them.** Lances on the ground show a bobbing `GRAB ME` tag. Touch one to collect it (up to 5).
+5. **Daisy chain.** One throw goes through every minion in its path. The 1st scores normally, the 2nd double, the 3rd triple, and so on.
+6. **Bullseye.** A thrown lance that hits a boss takes off one health bar (+500), same as a joust, then falls.
+7. **Around the world.** If the lance flies off one edge and wraps around, every kill it makes after that adds +1000.
+8. **Hot swap.** Catch one of your lances before it lands for +250.
+9. **Nothing but beak.** Throw it into the Hype Wyvern's open beak (facing it) for +1500.
+10. **Lava eats lances.** A lance that falls into the lava is replaced 5 seconds later ("RMA DELIVERED"). With no lances left, your tag counts down `RMA 5…4…`.
 
-Losing a life always gives you a fresh lance.
+Losing a life gives you a fresh set of 5.
 
 ### Who's who
 
