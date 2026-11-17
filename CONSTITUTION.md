@@ -14,6 +14,7 @@ Every gameplay rule the player relies on is written in the README and behaves ex
 - **Dropped dies:** they score 250, 500, 750, then 1000 per wave, plus 500 for a mid-air catch. An uncollected die reboots after about 6–11.5 s into the next enemy tier.
 - **Waves:** bosses on waves 3, 6, 9 and 12 (Jensen). Egg waves every 5th wave. Survival waves on waves 2, 7, 17 and so on. The bridge melts from wave 4. In endless mode a boss rematch comes every 4th wave.
 - **Extra life:** one every 20,000 points.
+- **Thrown lance:** flies straight for 0.75 s at 600 px/s, then falls. It passes through minions, and the nth kill in one throw scores n × the minion's points. It stops in a boss for one hit. A kill after the lance wraps the screen adds +1000. Catching it in mid-air scores +250. A beak hit on the Wyvern scores +1500. In lava it is replaced after 5 s. Until the player has a lance again, any contact with a rider costs a life. Losing a life restores the lance.
 
 Networking jokes in the game may be playful, but anything stated as a networking fact must be accurate. Fictional themes may decorate a rule; they must not hide or change it.
 
@@ -21,7 +22,7 @@ Networking jokes in the game may be playful, but anything stated as a networking
 
 ## C2 · Momentum and lance height are the core decision
 
-Every fight is decided by position, using the height rule. The game has no attack button and no projectiles that kill. Each boss special move gets a visible warning or a readable opening: Elon's "!" before he dashes, Bill's fade-out before he teleports, and each boss's low cruise phase between chases. A death must always be explainable by the height rule or a documented hazard (lava, the Hype Wyvern).
+Every fight is decided by position: the height rule when jousting, aim and lance height when throwing. The only projectile is the player's own lance, and throwing it leaves the player unarmed until they pick it up. Each throw therefore trades safety for reach, and it never replaces the height rule. Each boss special move gets a visible warning or a readable opening: Elon's "!" before he dashes, Bill's fade-out before he teleports, and each boss's low cruise phase between chases. A death must always be explainable by the height rule, being unplugged, or a documented hazard (lava, the Hype Wyvern).
 
 **Evidence:** a playthrough in which each boss is beaten using only the openings described in the README.
 
@@ -57,7 +58,7 @@ Ship only the agreed scope. The README and this constitution must describe the s
 
 ## C8 · The game has 80s 8-bit sound
 
-Every sound is original and synthesized at run time with the Web Audio API. The code in `src/game.html` (the `tone` and `sfx` definitions) is the script that regenerates every sound. No audio is copied from an existing game, and no real person's voice is used or cloned. Sound adds to a visual cue and never replaces it, so the muted game is fully playable. Audio starts on the player's first key press, click or tap. Mute (`M`) is saved in the browser and shown on screen.
+Every sound is original and synthesized at run time with the Web Audio API. The code in `src/game.html` (the `tone` and `sfx` definitions) is the script that regenerates every sound. No audio is copied from an existing game, and no real person's voice is used or cloned. The boss-wave announcer uses the browser's built-in text-to-speech with a generic system voice. It is silent when muted and simply absent where the browser has no speech; the on-screen warning banner carries the same information. Sound adds to a visual cue and never replaces it, so the muted game is fully playable. Audio starts on the player's first key press, click or tap. Mute (`M`) is saved in the browser and shown on screen.
 
 **Evidence:** the README's sound list, plus a round played with sound on and again muted.
 
@@ -82,6 +83,7 @@ The bosses are recognisable caricatures of public figures in a non-commercial pa
 | C5 | Implemented. An offline run has **not** been recorded yet. |
 | C7 | `./build.sh` exists. A fresh-start playthrough has **not** been recorded yet. |
 | C8 | Implemented, including a saved and displayed mute setting. A sound-on and muted playthrough has **not** been recorded yet. |
+| Lance throw, name tags, boss announcer | Added 2026-11-17. A headless smoke run of the real game script (browser stubbed, not committed) passed: throw, range drop, pickup, two-minion chain (+1500), lava melt and the 5 s RMA, unplugged contact costing a life, boss banners and announcer lines for Elon, Jeff and Jensen, and 30 s of random play with no errors. Nobody has played these in a real browser yet. |
 | C9 | **Not met.** There are no tests yet. The next step is to move the pure logic into a module and write tests against this document. |
 
 ## How we change these rules
@@ -99,3 +101,8 @@ For any material change, record the reason here, update the README, and re-check
   - C8 now allows sounds synthesized at run time, generated from code in the repository, instead of kit `.wav` files.
   - C10 was added for parody.
   - C4, C5, C7 and C9 keep their intent.
+- **2026-11-17: lance throw, name tags, boss announcer.** Owner requests, in the owner's words: "we need to be able to throw the joist", "we need some rules for this please make it kind of fun", "make the characters more pronounced at least have their name at the bottom of the screen", and "make sure to announce the wave when it happens if it's elon or jensen or bezos". The owner chose: unarmed until picked up, one boss hit per throw, `X`/`Shift` plus a THROW touch button.
+  - C2 no longer says "no attack button and no projectiles that kill". It now allows the player's own lance as the only projectile, at the cost of being unarmed.
+  - C1 lists the throw rules.
+  - C8 allows the browser's generic text-to-speech voice for the announcer.
+  - The README documents the throw rules, name tags, bottom roster and boss announcement.

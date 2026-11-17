@@ -28,6 +28,7 @@ kbd{font-family:var(--display); font-size:9px; padding:3px 5px; border:1px solid
 .pad button{flex:1; font-family:var(--display); font-size:12px; color:var(--ink); background:var(--panel); border:1px solid var(--rule);
   border-bottom:3px solid #2a3150; border-radius:10px; padding:18px 0; touch-action:none; user-select:none; -webkit-user-select:none}
 .pad button.flap{flex:1.6; color:#0b0d06; background:var(--accent); border-color:#1f9fb8}
+.pad button.throw{flex:1.2; color:#0b0d06; background:#ffd23f; border-color:#b8941f}
 .pad button:active,.pad button.on{transform:translateY(2px); filter:brightness(1.2)}
 button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 @media (pointer:coarse){ .pad{display:flex} .legend{display:none} }
@@ -37,6 +38,7 @@ button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 <div class="legend">
   <span><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> <b>steer</b></span>
   <span><kbd>SPACE</kbd> / <kbd>↑</kbd> / <kbd>W</kbd> <b>flap</b> (tap it, don't hold)</span>
+  <span><kbd>X</kbd> / <kbd>SHIFT</kbd> <b>throw lance</b></span>
   <span><kbd>P</kbd> <b>pause</b></span>
   <span><kbd>M</kbd> <b>mute</b></span>
 </div>
@@ -44,6 +46,7 @@ button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
   <button id="bL" data-k="left" aria-label="Steer left">◀</button>
   <button id="bF" data-k="flap" class="flap" aria-label="Flap">FLAP</button>
   <button id="bR" data-k="right" aria-label="Steer right">▶</button>
+  <button id="bT" data-k="throw" class="throw" aria-label="Throw lance">THROW</button>
 </div>
 
 <script>
@@ -77,6 +80,8 @@ const PLAYER_REPLIES = { elon:'Let’s test your Starlink latency.', bill:'Rolli
 const PLAYER_WINS = { elon:'Houston, you have a problem.', bill:'Blue screen for you.', jeff:'Package delivered.', jensen:'Packet loss: 100%. GG.' };
 const BOSS_OUCH = ['Ouch.', 'Recalculating…', 'That was a beta lance.', 'Not in the roadmap.'];
 const EGG_PTS = [250, 500, 750, 1000];
+const THROW_QUIPS = ['Catch!', 'Yeet the packet!', 'Fire and forget.', 'Sending it!', 'Hot-swap incoming!'];
+const LANCE_RANGE_T = 0.75, LANCE_SPEED = 600, RMA_T = 5;
 const QUIPS_WAVE = ['Pushing config…', 'It’s always DNS.', 'Ansible, take the wheel.', 'Idempotent and ready.', 'Have you checked the MTU?', 'BGP has converged.', 'Change window is open.'];
 const OFFS = [-W, 0, W];
 
@@ -113,7 +118,15 @@ const sfx = {
   grab: () => tone(70, 0.6, 'sawtooth', 0.1, 35),
   bump: () => tone(260, 0.04, 'triangle', 0.03),
   life: () => [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.1, 'square', 0.04, null, i * 0.07)),
+  throw: () => { tone(900, 0.18, 'sawtooth', 0.05, 220); tone(1400, 0.1, 'square', 0.02, 500); },
+  thunk: () => tone(160, 0.09, 'square', 0.06, 70),
+  siren: () => [0, 0.32, 0.64].forEach(d => { tone(440, 0.16, 'square', 0.045, 880, d); tone(880, 0.16, 'square', 0.045, 440, d + 0.16); }),
 };
+// announcer: the browser's built-in text-to-speech (a generic system voice, never an imitation of a real person)
+function announce(text) {
+  if (muted || !('speechSynthesis' in window)) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 0.95; u.pitch = 0.55; u.volume = 0.9; speechSynthesis.speak(u); } catch (e) { /* no speech available */ }
+}
 
 // ---------- persistence ----------
 let hiscore = 0;
@@ -193,6 +206,7 @@ const inLava = e => e.y + e.h / 2 > LAVA_TOP + 4;
 let state = 'title', paused = false, T = 0;
 let score = 0, lives = 4, wave = 0, waveType = 'standard', waveTime = 0, survivalOK = true, eggChain = 0, nextLife = 20000;
 let player = null, enemies = [], eggs = [], ghosts = [], parts = [], pops = [];
+let thrown = null, rmaT = 0, throwQueued = false;
 let wyvern = null, wyvernCount = 0, trollCd = 0, banner = null, quip = null, spawnQueue = [], spawnTimer = 0, nextWaveT = 0, shake = 0, overT = 0, boxes = [];
 
 function addScore(n, x, y, label, color = ACC) {
@@ -205,13 +219,14 @@ function burst(x, y, color, n = 18, sp = 160, g = 300) {
   for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), s = rand(sp * 0.3, sp); parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.4, 0.9), max: 0.9, color, size: rand(1.5, 3.5), g }); }
 }
 function say(text, t = 1.8) { quip = { text, t }; }
-function setBanner(text, sub, t = 2.4) { banner = { text, sub, t, max: t }; }
+function setBanner(text, sub, t = 2.4, color = null) { banner = { text, sub, t, max: t, color }; }
 
 function spawnPlayer() {
   const ps = pads();
   let best = ps[0], bestD = -1;
   for (const p of ps) { let d = 9999; for (const e of enemies) d = Math.min(d, Math.hypot(wdx(p.x, e.x), p.y - e.y)); d += rand(0, 80); if (d > bestD) { bestD = d; best = p; } }
-  player = { x: best.x, y: best.y - 19, w: 34, h: 38, vx: 0, vy: 0, face: 1, grounded: true, inv: 4, mat: 0.7, dead: false, respawn: 0, wingT: 0, run: 0, grab: null };
+  player = { x: best.x, y: best.y - 19, w: 34, h: 38, vx: 0, vy: 0, face: 1, grounded: true, inv: 4, mat: 0.7, dead: false, respawn: 0, wingT: 0, run: 0, grab: null, armed: true };
+  thrown = null; rmaT = 0;
   burst(player.x, player.y, ACC, 22, 120, 0);
 }
 function killPlayer(why) {
@@ -222,7 +237,7 @@ function killPlayer(why) {
 }
 function newGame() {
   ensureAudio();
-  score = 0; lives = 4; nextLife = 20000; enemies = []; eggs = []; ghosts = []; parts = []; pops = []; wyvern = null; boxes = []; nextWaveT = 0;
+  score = 0; lives = 4; nextLife = 20000; enemies = []; eggs = []; ghosts = []; parts = []; pops = []; wyvern = null; boxes = []; nextWaveT = 0; thrown = null; rmaT = 0;
   bridge = true; plats = makePlatforms(true); state = 'play'; paused = false;
   startWave(1); spawnPlayer();
 }
@@ -239,9 +254,14 @@ function startWave(n) {
     const hp = BOSSES[kind.bosses[0]].hp + (kind.rematch ? 2 : 0);
     kind.bosses.forEach(b => spawnQueue.push({ boss: b, hp }));
     if (kind.type === 'boss') { const m = { elon: 'bounder', bill: 'hunter', jeff: null, jensen: null }[kind.bosses[0]]; if (m) spawnQueue.push(m, m); }
-    const B = BOSSES[kind.bosses[0]];
-    if (kind.type === 'final') setBanner('FINAL BOSS: JENSEN', 'The leather jacket himself. Hit him from above 8 times.', 3.2);
-    else setBanner(`${B.name} — ${B.title}`, burnedNow ? 'Boss fight over open lava. Hit him from above.' : 'Boss fight: hit him from above to deal damage', 3);
+    const B = BOSSES[kind.bosses[0]], who = `${B.name[0]}${B.name.slice(1).toLowerCase()}, ${B.title.toLowerCase()}`;
+    if (kind.type === 'final') {
+      setBanner('FINAL BOSS: JENSEN', 'The leather jacket himself. Hit him from above 8 times.', 3.8, B.color);
+      setTimeout(() => announce(`Final wave! ${who}, has entered the data center!`), 900);
+    } else {
+      setBanner(`${B.name} — ${B.title}`, burnedNow ? 'Boss fight over open lava. Hit him from above.' : 'Boss fight: hit him from above, or throw your lance', 3.6, B.color);
+      setTimeout(() => announce(`Wave ${n}. Warning! ${who}, is entering the arena!`), 900);
+    }
   } else if (waveType === 'egg') {
     const spots = plats.filter(p => !p.bridge);
     const count = Math.min(10, 6 + Math.floor(n / 5));
@@ -258,7 +278,7 @@ function startWave(n) {
     spawnQueue.sort(() => Math.random() - 0.5);
     setBanner(`WAVE ${n}`, burnedNow ? 'The bridge has melted. Mind the lava.' : waveType === 'survival' ? 'SURVIVAL WAVE — 3000 bonus if you don’t die' : 'Prepare to joust');
   }
-  sfx.wave();
+  if (kind.bosses) sfx.siren(); else sfx.wave();
   if (player && !player.dead) say(kind.bosses ? PLAYER_REPLIES[kind.bosses[0]] : QUIPS_WAVE[(n - 1) % QUIPS_WAVE.length]);
 }
 // waves 3/6/9 are boss fights, 12 is the final battle; after that, endless with a boss rematch every 4th wave
@@ -283,7 +303,80 @@ function spawnEnemy(tier) {
 }
 
 // ---------- updates ----------
-function updatePlayer(dt, flapPressed) {
+// ---------- the thrown lance ----------
+function throwLance(P) {
+  if (!P.armed || P.dead || P.mat > 0 || P.grab) return;
+  P.armed = false; P.inv = 0;
+  thrown = { x: wrapX(P.x + P.face * 22), y: P.y + LANCE, w: 30, h: 6, vx: P.face * LANCE_SPEED + P.vx * 0.3, vy: 0, face: P.face,
+    t: 0, flying: true, grounded: false, fric: 8, kills: 0, wraps: 0 };
+  P.vx -= P.face * 60;
+  sfx.throw(); say(THROW_QUIPS[Math.floor(Math.random() * THROW_QUIPS.length)], 1.1);
+}
+function dropLance(L, thunk) {
+  L.flying = false;
+  L.vx = L.vx * (thunk ? -0.15 : 0.35); L.vy = thunk ? -120 : 0;
+  if (thunk) { sfx.thunk(); burst(L.x + L.face * 15, L.y, '#ffffff', 8, 120); }
+}
+function lanceInPlatform(L) {
+  for (const p of plats) for (const off of OFFS) if (overlapsX(L, p, off) && L.y + L.h / 2 > p.y && L.y - L.h / 2 < p.y + p.h) return true;
+  return false;
+}
+function updateThrown(dt) {
+  if (rmaT > 0) {
+    rmaT -= dt;
+    if (rmaT <= 0 && player && !player.dead) { player.armed = true; pops.push({ x: player.x, y: player.y - 34, text: 'RMA DELIVERED', life: 1.4, color: ACC }); sfx.egg(4); }
+  }
+  const L = thrown; if (!L) return;
+  L.t += dt;
+  if (L.flying) {
+    const px = L.x, nx = L.x + L.vx * dt;
+    if (nx < 0 || nx >= W) L.wraps++;
+    L.x = wrapX(nx);
+    if (Math.random() < 0.6) parts.push({ x: L.x - L.face * 16, y: L.y + rand(-1.5, 1.5), vx: -L.face * rand(20, 60), vy: 0, life: 0.25, max: 0.25, color: ACC, size: 2, g: 0 });
+    if (lanceInPlatform(L)) { L.x = px; dropLance(L, true); }
+    else if (L.t > LANCE_RANGE_T) dropLance(L, false);
+    return;
+  }
+  stepBody(L, dt, 0, 0, LANCE_SPEED);
+  if (inLava(L)) {
+    thrown = null; rmaT = RMA_T;
+    burst(L.x, LAVA_TOP, '#ff7a2a', 18, 170); sfx.grab();
+    pops.push({ x: L.x, y: LANCE_TOP_POP, text: 'LANCE MELTED', life: 1.6, color: '#ff9a4a' });
+    say('That was my only patch cable! RMA in 5…', 1.8);
+  }
+}
+const LANCE_TOP_POP = LAVA_TOP - 30;
+// a thrown lance pierces minions (each extra one in the same throw multiplies the points) and stops in a boss
+function lanceHits() {
+  const L = thrown; if (!L || !L.flying) return;
+  for (const e of enemies) {
+    if (e.gone || e.state === 'mat' || e.noHit > 0 || (e.alpha ?? 1) < 0.5 || !aabb(L, e, 2)) continue;
+    if (e.boss) { hitBoss(e, L.x); dropLance(L, true); return; }
+    L.kills++;
+    if (e.state === 'walker') {
+      e.gone = true; addScore(250 * L.kills, e.x, e.y - 20, L.kills > 1 ? `CHAIN ×${L.kills}` : 'SKEWERED', '#ffd23f');
+      burst(e.x, e.y, TIERS[e.tier].color, 14, 140); sfx.win();
+    } else defeatMinion(e, L.kills);
+    if (L.kills === 3) say('Triple skewer! Daisy chain!', 1.6);
+    if (L.wraps) addScore(1000, e.x, e.y - 44, 'AROUND THE WORLD', '#ffd23f');
+  }
+  if (wyvern) {
+    const w = wyvern, beakX = w.x + w.face * 40, beakY = w.y - 2, open = Math.sin(w.t * 6) > -0.3;
+    if (open && L.face === -w.face && Math.abs(L.y - beakY) < 10 && Math.abs(wdx(L.x + L.face * 15, beakX)) < 20) {
+      addScore(1500, w.x, w.y - 30, 'NOTHING BUT BEAK', '#d58bff'); burst(w.x, w.y, '#b86bff', 40, 280); burst(w.x, w.y, '#ffffff', 20, 200);
+      sfx.clang(); sfx.win(); shake = 8; wyvern = null; say('Swish!'); dropLance(L, false);
+    }
+  }
+}
+function defeatMinion(e, mult = 1) {
+  e.gone = true; const tr = TIERS[e.tier];
+  addScore(tr.pts * mult, e.x, e.y - 24, mult > 1 ? `DAISY CHAIN ×${mult}` : null, mult > 1 ? '#ffd23f' : ACC);
+  eggs.push({ x: e.x, y: e.y, w: 16, h: 14, vx: e.vx * 0.6, vy: Math.min(e.vy, 0) - 80, grounded: false, fric: 1.2, t: 0, hatchAt: Math.max(6, 10 - wave * 0.15) + rand(0, 1.5), tier: tr.next });
+  ghosts.push({ x: e.x, y: e.y + 6, vx: (e.x < W / 2 ? -1 : 1) * 220, vy: -40, face: e.x < W / 2 ? -1 : 1, t: 0 });
+  burst(e.x, e.y - 10, tr.color, 20, 200); sfx.win(); shake = 3;
+}
+
+function updatePlayer(dt, flapPressed, throwPressed) {
   const P = player;
   if (P.dead) { P.respawn -= dt; if (P.respawn <= 0) { if (lives > 0) spawnPlayer(); else { state = 'over'; overT = 0; saveHi(); } } return; }
   P.wingT = Math.max(0, P.wingT - dt);
@@ -301,6 +394,7 @@ function updatePlayer(dt, flapPressed) {
     return;
   }
 
+  if (throwPressed) throwLance(P);
   if (flapPressed) { flap(P); sfx.flap(); }
   const hit = stepBody(P, dt, ax, 300, 240);
   if (hit) sfx.bump();
@@ -430,11 +524,11 @@ function updateBoss(e, dt) {
   stepBody(e, dt, e.dir, B.acc * (oc ? 1.5 : 1), (e.mode === 'cruise' ? B.max * 0.7 : B.max) * (oc ? 1.35 : 1));
   if (inLava(e)) { e.y = LAVA_TOP - e.h / 2 - 4; e.vy = -360; burst(e.x, LAVA_TOP, '#ff7a2a', 16, 160); }
 }
-function hitBoss(e) {
-  const B = BOSSES[e.boss], P = player;
+function hitBoss(e, fromX) {
+  const B = BOSSES[e.boss], P = player, byThrow = fromX != null;
   e.hp--; e.noHit = 1.2; e.tele = 0; e.dash = 0; e.oc = 0;
-  const d = Math.sign(wdx(P.x, e.x)) || 1;
-  e.vx = d * 260; e.vy = 200; P.vy = -220; e.mode = 'cruise'; e.modeT = 1.2;
+  const d = Math.sign(wdx(byThrow ? fromX : P.x, e.x)) || 1;
+  e.vx = d * 260; e.vy = 200; if (!byThrow) P.vy = -220; e.mode = 'cruise'; e.modeT = 1.2;
   burst(e.x, e.y - 10, B.color, 24, 220); sfx.clang(); shake = 5;
   if (e.hp <= 0) {
     e.gone = true;
@@ -442,7 +536,7 @@ function hitBoss(e) {
     burst(e.x, e.y, B.color, 50, 320); burst(e.x, e.y, '#ffffff', 30, 240);
     sfx.life(); shake = 10; say(PLAYER_WINS[e.boss], 2.2);
   } else {
-    addScore(500, e.x, e.y - 34, 'HIT');
+    addScore(500, e.x, e.y - 34, byThrow ? 'BULLSEYE' : 'HIT');
     e.quip = { text: BOSS_OUCH[Math.floor(Math.random() * BOSS_OUCH.length)], t: 1.2 };
   }
 }
@@ -503,22 +597,24 @@ function collisions() {
       e.gone = true; addScore(250, e.x, e.y - 20, 'STOMP'); burst(e.x, e.y, TIERS[e.tier].color, 14, 140); sfx.win(); continue;
     }
     const dy = (P.y + LANCE) - (e.y + (e.lance ?? LANCE)); // negative = player's lance higher
-    if (Math.abs(dy) < 2.5 || (P.inv > 0 && dy > 0)) {
+    if (!P.armed && P.inv <= 0) { pops.push({ x: P.x, y: P.y - 34, text: 'UNPLUGGED!', life: 1.2, color: '#ff5a7a' }); killPlayer('lance'); return; }
+    if (!P.armed || Math.abs(dy) < 2.5 || (P.inv > 0 && dy > 0)) {
       const d = Math.sign(wdx(e.x, P.x)) || 1;
       P.vx = d * Math.max(150, Math.abs(P.vx)); e.vx = -d * Math.max(150, Math.abs(e.vx));
       P.vy = Math.min(P.vy, -60); e.vy = Math.min(e.vy, -60); e.noHit = 0.3; e.dir = -d;
       sfx.clang(); burst((P.x + e.x) / 2, P.y + LANCE, '#ffffff', 14, 220, 200);
     } else if (dy < 0) {
       if (e.boss) { hitBoss(e); continue; }
-      e.gone = true; const tr = TIERS[e.tier];
-      addScore(tr.pts, e.x, e.y - 24);
-      eggs.push({ x: e.x, y: e.y, w: 16, h: 14, vx: e.vx * 0.6, vy: Math.min(e.vy, 0) - 80, grounded: false, fric: 1.2, t: 0, hatchAt: Math.max(6, 10 - wave * 0.15) + rand(0, 1.5), tier: tr.next });
-      ghosts.push({ x: e.x, y: e.y + 6, vx: (e.x < W / 2 ? -1 : 1) * 220, vy: -40, face: e.x < W / 2 ? -1 : 1, t: 0 });
-      burst(e.x, e.y - 10, tr.color, 20, 200); sfx.win(); shake = 3;
+      defeatMinion(e);
     } else {
       killPlayer('lance');
       return;
     }
+  }
+  if (thrown && !P.armed && thrown.t > 0.25 && aabb(P, thrown, -6)) {
+    const air = !thrown.grounded; thrown = null; P.armed = true; rmaT = 0; sfx.egg(3);
+    if (air) addScore(250, P.x, P.y - 30, 'HOT SWAP', '#ffd23f');
+    else pops.push({ x: P.x, y: P.y - 30, text: 'PLUGGED IN', life: 1, color: ACC });
   }
   for (const b of boxes) {
     if (b.gone || !aabb(P, b, -2)) continue;
@@ -536,7 +632,7 @@ function collisions() {
     const beakX = w.x + w.face * 40, beakY = w.y - 2;
     const tipX = P.x + P.face * 34, tipY = P.y + LANCE;
     const open = Math.sin(w.t * 6) > -0.3;
-    if (open && P.face === -w.face && Math.abs(tipY - beakY) < 9 && Math.abs(wdx(tipX, beakX)) < 18) {
+    if (P.armed && open && P.face === -w.face && Math.abs(tipY - beakY) < 9 && Math.abs(wdx(tipX, beakX)) < 18) {
       addScore(1000, w.x, w.y - 30, 'WYVERN', '#d58bff'); burst(w.x, w.y, '#b86bff', 40, 280); burst(w.x, w.y, '#ffffff', 20, 200);
       sfx.clang(); sfx.win(); shake = 8; wyvern = null; say('Bubble popped.');
     } else if (P.inv <= 0 && Math.abs(wdx(P.x, w.x)) < P.w / 2 + 24 && Math.abs(P.y - w.y) < P.h / 2 + 8) {
@@ -547,14 +643,16 @@ function collisions() {
 function update(dt) {
   T += dt;
   const flapPressed = flapQueued > 0; if (flapQueued > 0) flapQueued--;
+  const throwPressed = throwQueued; throwQueued = false;
   updateFx(dt);
   if (state === 'over' || state === 'win') overT += dt;
   if (state !== 'play') return;
   if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
   waveTime += dt; trollCd -= dt; shake = Math.max(0, shake - dt * 20);
   if (spawnQueue.length) { spawnTimer -= dt; if (spawnTimer <= 0) { spawnEnemy(spawnQueue.shift()); spawnTimer = 0.7; } }
-  updatePlayer(dt, flapPressed);
+  updatePlayer(dt, flapPressed, throwPressed);
   for (const e of enemies) updateEnemy(e, dt);
+  updateThrown(dt); lanceHits();
   for (const g of eggs) updateEgg(g, dt);
   for (const b of boxes) {
     b.t += dt; const vyb = b.vy; stepBody(b, dt, 0, 0, 300);
@@ -673,11 +771,13 @@ function drawEngineer(x, y, face, o) {
   ctx.fillStyle = '#f4f6fb'; ctx.fillRect(-0.8, -7.5, 3, 4); ctx.fillStyle = '#2f7dff'; ctx.fillRect(-0.8, -7.5, 3, 1);
   // arm + patch-cable lance with RJ45 plug
   ctx.strokeStyle = '#4a5468'; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(1, -10); ctx.lineTo(8, LANCE + 1); ctx.stroke();
-  ctx.save(); ctx.shadowColor = ACC; ctx.shadowBlur = 8;
-  line(-9, LANCE, 31, LANCE, ACC, 2.4);
-  ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(30, LANCE - 2.7, 8, 5.4); ctx.restore();
-  ctx.fillStyle = '#d9a733'; for (let k = 0; k < 4; k++) ctx.fillRect(36.6, LANCE - 2.2 + k * 1.3, 1.2, 0.7);
-  ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(31, LANCE - 4, 3.5, 1.3);
+  if (!o.unarmed) {
+    ctx.save(); ctx.shadowColor = ACC; ctx.shadowBlur = 8;
+    line(-9, LANCE, 31, LANCE, ACC, 2.4);
+    ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(30, LANCE - 2.7, 8, 5.4); ctx.restore();
+    ctx.fillStyle = '#d9a733'; for (let k = 0; k < 4; k++) ctx.fillRect(36.6, LANCE - 2.2 + k * 1.3, 1.2, 0.7);
+    ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(31, LANCE - 4, 3.5, 1.3);
+  }
   ctx.fillStyle = '#d9a27c'; ctx.beginPath(); ctx.arc(9, LANCE + 0.5, 1.9, 0, 7); ctx.fill();
   // head: messy hair, thick glasses
   ctx.beginPath(); ctx.arc(0.5, -17, 5.2, 0, 7); ctx.fill();
@@ -848,6 +948,41 @@ function drawBubble(x, y, text, alpha, edge) {
   ctx.fillStyle = '#0b0d14'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, bx + 8, by + 11.5);
   ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
 }
+// name tag under a character: dark pill with colored text, so it reads over lava, platforms and sky
+function drawNameTag(x, y, text, color, alpha = 1) {
+  if (alpha <= 0.05) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.font = '7px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width + 8, ty = clamp(y, 6, H - 8);
+  ctx.fillStyle = 'rgba(6,7,13,0.78)'; rr(x - tw / 2, ty - 6, tw, 12, 3); ctx.fill();
+  ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = color; ctx.fillText(text, x, ty + 0.5);
+  ctx.restore();
+}
+// bottom-of-screen roster: who is on screen right now, in each character's color
+function drawRoster() {
+  const parts = [], counts = {};
+  for (const e of enemies) {
+    if (e.boss) { const B = BOSSES[e.boss]; parts.push({ text: `${B.name} — ${B.title}`, color: B.color }); }
+    else if (e.state !== 'walker') counts[e.tier] = (counts[e.tier] || 0) + 1;
+  }
+  for (const k of ['bounder', 'hunter', 'shadow']) if (counts[k]) parts.push({ text: `${TIERS[k].name.toUpperCase()} ×${counts[k]}`, color: TIERS[k].color });
+  if (!parts.length) return;
+  const sep = '   ', maxW = GAP_R - GAP_L - 16;
+  let size = 8;
+  ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const measure = () => { ctx.font = `${size}px "Press Start 2P", monospace`; return ctx.measureText(parts.map(p => p.text).join(sep)).width; };
+  let tw = measure();
+  while (tw > maxW && size > 5) { size--; tw = measure(); }
+  const cx = (GAP_L + GAP_R) / 2, y = 589;
+  ctx.fillStyle = 'rgba(6,7,13,0.82)'; rr(cx - tw / 2 - 8, y - 9, tw + 16, 18, 4); ctx.fill();
+  let x = cx - tw / 2;
+  parts.forEach((p, i) => {
+    ctx.fillStyle = p.color; ctx.fillText(p.text, x, y + 0.5);
+    x += ctx.measureText(p.text + (i < parts.length - 1 ? sep : '')).width;
+  });
+  ctx.restore();
+}
 function drawBox(b) {
   ctx.save(); ctx.translate(b.x, b.y);
   if (b.t > 5.5 && Math.floor(T * 10) % 2) ctx.globalAlpha = 0.4;
@@ -881,6 +1016,7 @@ function drawEnemy(e) {
     }
     const flick = e.noHit > 0.3 && e.hp < e.maxHp && (REDUCED || Math.floor(T * 16) % 2);
     wrapped(e.x, 60, x => drawBossFigure(x, e.y, e.face, e.boss, { wing: e.wingT > 0, grounded: e.grounded, t: T, boost: e.dash > 0, alpha: (e.alpha ?? 1) * (flick ? 0.35 : 1) }));
+    wrapped(e.x, 60, x => drawNameTag(x, e.y + e.h / 2 + 9, B.name, B.color, e.alpha ?? 1));
     if (e.tele > 0 && Math.floor(T * 12) % 2) { ctx.textAlign = 'center'; ctx.font = '14px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText('!', e.x, e.y - 40); }
     if (e.quip) drawBubble(e.x, e.y - 70, e.quip.text, Math.min(1, e.quip.t * 3), B.color);
     return;
@@ -908,7 +1044,7 @@ function drawEnemy(e) {
     if (e.t > 1.2) { ctx.fillStyle = tr.color; ctx.font = '8px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.fillText('REBOOT', e.x, e.y - 18); }
     return;
   }
-  wrapped(e.x, 50, x => { drawDrone(x, e.y, e.face, e.wingT > 0, e.grounded, e.run, T); drawBot(x, e.y, e.face, e.tier, {}); });
+  wrapped(e.x, 50, x => { drawDrone(x, e.y, e.face, e.wingT > 0, e.grounded, e.run, T); drawBot(x, e.y, e.face, e.tier, {}); drawNameTag(x, e.y + e.h / 2 + 8, tr.name.toUpperCase(), tr.color); });
 }
 function drawEgg(g) {
   const warn = g.hatchAt - g.t < 3;
@@ -958,9 +1094,23 @@ function drawPlayer() {
     drawEngineer(P.x, P.y, P.face, { grounded: true, t: T, alpha: 0.4 + 0.6 * k }); ctx.restore(); return;
   }
   const flick = P.inv > 0 && (REDUCED || Math.floor(T * 16) % 2);
-  wrapped(P.x, 50, x => drawEngineer(x, P.y, P.face, { wing: P.wingT > 0, grounded: P.grounded, run: P.run, t: T, alpha: flick ? 0.35 : 1 }));
+  const tag = P.armed ? 'YOU' : rmaT > 0 ? `YOU · RMA ${Math.ceil(rmaT)}` : 'YOU · UNPLUGGED';
+  wrapped(P.x, 50, x => { drawEngineer(x, P.y, P.face, { wing: P.wingT > 0, grounded: P.grounded, run: P.run, t: T, alpha: flick ? 0.35 : 1, unarmed: !P.armed }); drawNameTag(x, P.y + P.h / 2 + 8, tag, P.armed ? ACC : '#ff5a7a'); });
   if (P.skid > 0 && P.grounded) for (let i = 0; i < 2; i++) parts.push({ x: P.x - P.face * 8, y: P.y + 18, vx: rand(-40, 40), vy: rand(-60, -10), life: 0.3, max: 0.3, color: '#c9ccd3', size: 2, g: 100 });
   if (quip) drawBubble(P.x, P.y - 62, quip.text, Math.min(1, quip.t * 3), ACC);
+}
+function drawThrown() {
+  const L = thrown; if (!L) return;
+  const bob = REDUCED ? 0 : Math.sin(T * 6) * 3;
+  wrapped(L.x, 40, x => {
+    ctx.save(); ctx.translate(x, L.y); ctx.scale(L.face, 1);
+    if (!L.flying && !L.grounded && !REDUCED) ctx.rotate(Math.sin(L.t * 14) * 0.4);
+    ctx.shadowColor = ACC; ctx.shadowBlur = L.flying ? 14 : 6;
+    line(-16, 0, 12, 0, ACC, 2.6);
+    ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(11, -2.7, 8, 5.4);
+    ctx.restore();
+    if (!L.flying && player && !player.dead && !player.armed) drawNameTag(x, L.y - 16 + bob, 'GRAB ME', ACC);
+  });
 }
 function drawHUD() {
   ctx.font = '11px "Press Start 2P", monospace'; ctx.textAlign = 'left';
@@ -979,6 +1129,21 @@ function drawBanner() {
   if (!banner) return;
   const k = banner.t / banner.max, a = Math.min(1, k * 4, (1 - k) * 8);
   ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center';
+  if (banner.color) {
+    // boss wave: hazard stripes, flashing WARNING, name in the boss's color
+    ctx.fillStyle = 'rgba(6,7,13,0.82)'; ctx.fillRect(0, 196, W, 112);
+    const sh = REDUCED ? 0 : (T * 80) % 40;
+    for (const y of [196, 302]) {
+      ctx.save(); ctx.beginPath(); ctx.rect(0, y, W, 6); ctx.clip();
+      for (let x = -40 + sh; x < W + 40; x += 40) { ctx.fillStyle = '#ffd23f'; poly([[x, y], [x + 20, y], [x + 26, y + 6], [x + 6, y + 6]]); ctx.fill(); }
+      ctx.restore();
+    }
+    if (REDUCED || Math.floor(T * 4) % 2) { ctx.font = '12px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText('⚠ WARNING · BOSS INCOMING ⚠', W / 2, 228); }
+    ctx.save(); ctx.shadowColor = banner.color; ctx.shadowBlur = 18;
+    ctx.font = '26px "Press Start 2P", monospace'; ctx.fillStyle = banner.color; ctx.fillText(banner.text, W / 2, 264); ctx.restore();
+    ctx.font = '600 17px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e7ebf5'; ctx.fillText(banner.sub, W / 2, 292);
+    ctx.restore(); return;
+  }
   ctx.fillStyle = 'rgba(6,7,13,0.6)'; ctx.fillRect(0, 206, W, 92);
   ctx.font = '30px "Press Start 2P", monospace'; ctx.fillStyle = ACC; ctx.fillText(banner.text, W / 2, 252);
   ctx.font = '600 17px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e7ebf5'; ctx.fillText(banner.sub, W / 2, 282);
@@ -1002,8 +1167,9 @@ function drawTitle() {
   ctx.fillText('Higher lance wins, equal height clangs. Hit bosses from above when they dip low.', W / 2, 410);
   ctx.fillStyle = '#9aa3bf'; ctx.font = '15px "Chakra Petch", system-ui, sans-serif';
   ctx.fillText('Grab dropped dies before they reboot. Stay out of the lava. Lance the Hype Wyvern in its open beak.', W / 2, 432);
-  if (Math.floor(T * 2) % 2) { ctx.font = '14px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP TO START' : 'PRESS ENTER OR SPACE', W / 2, 470); }
-  ctx.font = '9px "Press Start 2P", monospace'; ctx.fillStyle = '#5c6278'; ctx.fillText('HI ' + String(hiscore).padStart(7, '0'), W / 2, 500);
+  ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'THROW your lance, then go grab it back. Unplugged, any hit beats you.' : 'X or Shift throws your lance. Go grab it back: unplugged, any hit beats you.', W / 2, 452);
+  if (Math.floor(T * 2) % 2) { ctx.font = '14px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP TO START' : 'PRESS ENTER OR SPACE', W / 2, 482); }
+  ctx.font = '9px "Press Start 2P", monospace'; ctx.fillStyle = '#5c6278'; ctx.fillText('HI ' + String(hiscore).padStart(7, '0'), W / 2, 508);
 }
 function drawOver() {
   ctx.fillStyle = 'rgba(6,7,13,0.7)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
@@ -1033,7 +1199,7 @@ function render() {
   for (const b of boxes) drawBox(b);
   for (const g of ghosts) drawDrone(g.x, g.y, g.face, Math.sin(g.t * 20) > 0, false, 0, T);
   for (const e of enemies) drawEnemy(e);
-  if (state !== 'title') { drawTroll(); drawPlayer(); }
+  if (state !== 'title') { drawThrown(); drawTroll(); drawPlayer(); }
   if (wyvern) wrapped(wyvern.x, 60, x => drawWyvern({ ...wyvern, x }));
   for (const p of parts) { ctx.globalAlpha = clamp(p.life / p.max, 0, 1); ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); }
   ctx.globalAlpha = 1;
@@ -1041,7 +1207,7 @@ function render() {
   for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y); }
   ctx.globalAlpha = 1;
   drawHUD();
-  if (state === 'play') { drawBossBars(); drawBanner(); }
+  if (state === 'play') { drawRoster(); drawBossBars(); drawBanner(); }
   if (state === 'title') drawTitle();
   if (state === 'over') drawOver();
   if (state === 'win') drawWin();
@@ -1058,7 +1224,9 @@ const keys = { left: false, right: false };
 let flapQueued = 0;
 const coarse = window.matchMedia && matchMedia('(pointer:coarse)').matches;
 const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
-const FLAPKEYS = new Set(['Space', 'ArrowUp', 'KeyW', 'KeyZ', 'KeyX']);
+const FLAPKEYS = new Set(['Space', 'ArrowUp', 'KeyW', 'KeyZ']);
+const THROWKEYS = new Set(['KeyX', 'ShiftLeft', 'ShiftRight']);
+function queueThrow() { if (state === 'play' && !paused) throwQueued = true; }
 function startOrFlap() {
   ensureAudio();
   if (state === 'title' || (state === 'over' && overT > 1)) { newGame(); return; }
@@ -1066,21 +1234,22 @@ function startOrFlap() {
   if (state === 'play' && !paused) flapQueued = Math.min(flapQueued + 1, 3);
 }
 addEventListener('keydown', ev => {
-  if (KEYMAP[ev.code] || FLAPKEYS.has(ev.code) || ev.code === 'ArrowDown') ev.preventDefault();
+  if (KEYMAP[ev.code] || FLAPKEYS.has(ev.code) || THROWKEYS.has(ev.code) || ev.code === 'ArrowDown') ev.preventDefault();
   ensureAudio();
   if (KEYMAP[ev.code]) keys[KEYMAP[ev.code]] = true;
+  else if (THROWKEYS.has(ev.code)) { if (!ev.repeat) queueThrow(); }
   else if (FLAPKEYS.has(ev.code)) { if (!ev.repeat) startOrFlap(); }
   else if (ev.code === 'Enter') { if (state !== 'play') startOrFlap(); }
   else if (ev.code === 'KeyP' || ev.code === 'Escape') { if (state === 'play') paused = !paused; }
-  else if (ev.code === 'KeyM') { muted = !muted; try { localStorage.setItem('aspath-muted', muted ? '1' : '0'); } catch (e) { /* storage blocked */ } }
+  else if (ev.code === 'KeyM') { muted = !muted; if (muted && 'speechSynthesis' in window) speechSynthesis.cancel(); try { localStorage.setItem('aspath-muted', muted ? '1' : '0'); } catch (e) { /* storage blocked */ } }
 });
 addEventListener('keyup', ev => { if (KEYMAP[ev.code]) keys[KEYMAP[ev.code]] = false; });
 addEventListener('blur', () => { keys.left = keys.right = false; });
 cv.addEventListener('pointerdown', () => { cv.focus(); if (paused) { paused = false; return; } if (state !== 'play') startOrFlap(); });
 document.querySelectorAll('#pad button').forEach(b => {
   const k = b.dataset.k;
-  const down = ev => { ev.preventDefault(); b.classList.add('on'); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ } if (k === 'flap') startOrFlap(); else keys[k] = true; };
-  const up = () => { b.classList.remove('on'); if (k !== 'flap') keys[k] = false; };
+  const down = ev => { ev.preventDefault(); b.classList.add('on'); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ } if (k === 'flap') startOrFlap(); else if (k === 'throw') { ensureAudio(); queueThrow(); } else keys[k] = true; };
+  const up = () => { b.classList.remove('on'); if (k === 'left' || k === 'right') keys[k] = false; };
   b.addEventListener('pointerdown', down);
   b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   b.addEventListener('contextmenu', e => e.preventDefault());

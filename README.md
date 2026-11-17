@@ -51,6 +51,7 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 |---|---|---|
 | Steer | `←` `→` or `A` `D` | ◀ ▶ buttons |
 | Flap | `Space`, `↑`, `W` (tap it, don't hold) | FLAP button |
+| Throw lance | `X` or `Shift` | THROW button |
 | Pause | `P` / `Esc` | tap the screen |
 | Mute | `M` | — |
 
@@ -62,6 +63,26 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 - **Lava.** From wave 4 the bridge melts. Fly too low and a molten hand grabs you; tap flap 7 times to break free.
 - **Hype Wyvern.** Linger too long and it shows up. Only a lance in its open beak kills it.
 - **Wave types.** Egg waves every 5th wave; survival waves (no deaths = 3000 bonus); an extra life every 20,000 points.
+
+### Throwing your lance
+
+Your patch-cable lance is also your one and only projectile. Throwing it is a gamble.
+
+1. **Let it fly.** `X` or `Shift` hurls the lance straight ahead at lance height. It flies for about ¾ of a second, roughly half the screen, then drops. If it hits a platform, it thunks off and falls.
+2. **You're UNPLUGGED.** Until you get it back, you have no lance. Touching any enemy or boss costs you a life, even if you're higher. Your name tag turns red and reads `YOU · UNPLUGGED`. You can still stomp rebooting dies and collect dies.
+3. **Go get it.** A lance on the ground shows a bobbing `GRAB ME` tag. Touch it to plug back in.
+4. **Daisy chain.** One throw goes through every minion in its path. The 1st scores normally, the 2nd double, the 3rd triple, and so on.
+5. **Bullseye.** A thrown lance that hits a boss takes off one health bar (+500), same as a joust, then falls.
+6. **Around the world.** If the lance flies off one edge and wraps around, every kill it makes after that adds +1000.
+7. **Hot swap.** Catch your own lance before it lands for +250.
+8. **Nothing but beak.** Throw it into the Hype Wyvern's open beak (facing it) for +1500.
+9. **Lava eats lances.** If it falls into the lava, a replacement arrives in 5 seconds. Your tag counts down `RMA 5…4…`. You're unplugged until it arrives.
+
+Losing a life always gives you a fresh lance.
+
+### Who's who
+
+Every rider has a colored name tag under them: you, each minion type, and each boss. The bar across the bottom of the screen lists everyone currently in the arena. A boss wave opens with flashing hazard stripes, a siren, and the announcer calling the boss by name, for example "Wave 3. Warning! Elon, the rocketeer, is entering the arena!"
 
 Details: two lances within 2.5 px count as a tie. Respawn protection lasts until you move or flap (max 4 s). Survival waves are 2, 7, 17, …; egg waves every 5th wave.
 
@@ -95,6 +116,10 @@ All sounds are original 8-bit tones synthesized at run time with the Web Audio A
 | wyvern | Hype Wyvern arrives, Elon dashes, Jensen overclocks |
 | grab | lava hand grabs you |
 | bump | ledge bounce, package THUD |
+| throw (whoosh) | you throw your lance |
+| thunk | thrown lance hits a platform or a boss |
+| siren | a boss wave starts |
+| announcer | a boss wave starts: the boss's name and title, spoken by your browser's built-in text-to-speech voice. That's a generic system voice, not an imitation of anyone, and it's silent when muted or where the browser has no speech. |
 | life jingle | extra life, boss defeated, victory |
 
 ## Project layout
