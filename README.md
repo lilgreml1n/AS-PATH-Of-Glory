@@ -6,6 +6,45 @@ patch-cable lance, battling tech billionaires above a pit of lava.
 
 **Play:** open `index.html` in any browser, or enable GitHub Pages for this repo.
 
+## Getting started
+
+### 1. Get the game
+
+```sh
+git clone https://github.com/lilgreml1n/AS-PATH-Of-Glory.git
+cd AS-PATH-Of-Glory
+```
+
+No Git? On the GitHub page, click **Code → Download ZIP** and unzip it.
+
+### 2. Play it
+
+Double-click `index.html`, or drag it into a browser window. The whole game is in that one file. It needs no install, server or account. It loads its retro fonts from Google Fonts. Offline, it still plays but falls back to plain fonts.
+
+Press any key, click or tap once to start the sound. The game shows controls on screen, and the full list is in [How to play](#how-to-play) below.
+
+### 3. Change it (optional)
+
+1. Edit `src/game.html`. That's the source. Don't edit `index.html` directly, because the build overwrites it.
+2. Rebuild the playable file:
+   ```sh
+   ./build.sh
+   ```
+   The build needs `bash` and `sed`. On Windows, use Git Bash or WSL.
+3. Reload `index.html` in the browser to try your change.
+4. Commit both files so the online version updates:
+   ```sh
+   git add src/game.html index.html
+   git commit -m "Describe your change"
+   git push
+   ```
+
+Before changing gameplay, read [CONSTITUTION.md](CONSTITUTION.md). It lists the rules the game must keep, such as the higher lance winning. If you change a rule, update the README to match.
+
+### 4. Put it online (optional)
+
+Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute or two the game is live at **https://lilgreml1n.github.io/AS-PATH-Of-Glory/**. Share that link so people can play in their browser.
+
 ## How to play
 
 | Action | Keyboard | Touch |
