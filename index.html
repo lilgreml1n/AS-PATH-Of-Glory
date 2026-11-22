@@ -1279,7 +1279,7 @@ addEventListener('keydown', ev => {
 });
 addEventListener('keyup', ev => { if (KEYMAP[ev.code]) keys[KEYMAP[ev.code]] = false; });
 addEventListener('blur', () => { keys.left = keys.right = false; });
-cv.addEventListener('pointerdown', () => { cv.focus(); if (paused) { paused = false; return; } if (state !== 'play') startOrFlap(); });
+cv.addEventListener('pointerdown', () => { cv.focus(); if (state === 'play') { paused = !paused; return; } startOrFlap(); });
 document.querySelectorAll('#pad button').forEach(b => {
   const k = b.dataset.k;
   const down = ev => { ev.preventDefault(); b.classList.add('on'); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ } if (k === 'flap') startOrFlap(); else if (k === 'throw') { ensureAudio(); queueThrow(); } else keys[k] = true; };
