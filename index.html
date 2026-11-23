@@ -25,15 +25,16 @@ body{
 }
 .stage{width:min(100%, calc((100dvh - 150px) * 1.6), 1280px); position:relative}
 canvas{display:block; width:100%; aspect-ratio:16/10; max-width:100%; border-radius:6px; background:#0a0c18;
-  box-shadow:0 0 0 1px var(--rule), 0 20px 60px -20px rgba(255,90,31,.35), 0 0 80px -30px rgba(56,225,255,.25); touch-action:none}
+  box-shadow:0 0 0 1px var(--rule), 0 20px 60px -20px rgba(255,90,31,.35), 0 0 80px -30px rgba(56,225,255,.25); touch-action:none; cursor:crosshair}
 .legend{display:flex; flex-wrap:wrap; gap:6px 18px; justify-content:center; color:var(--dim); font-size:13px; letter-spacing:.02em}
 .legend b{color:var(--ink); font-weight:600}
 kbd{font-family:var(--display); font-size:9px; padding:3px 5px; border:1px solid var(--rule); border-bottom-width:2px; border-radius:4px; color:var(--accent); background:var(--panel)}
-.pad{display:none; gap:10px; width:min(100%, 520px)}
-.pad button{flex:1; font-family:var(--display); font-size:12px; color:var(--ink); background:var(--panel); border:1px solid var(--rule);
+.pad{display:none; gap:8px; width:min(100%, 560px)}
+.pad button{flex:1; font-family:var(--display); font-size:11px; color:var(--ink); background:var(--panel); border:1px solid var(--rule);
   border-bottom:3px solid #2a3150; border-radius:10px; padding:18px 0; touch-action:none; user-select:none; -webkit-user-select:none}
 .pad button.flap{flex:1.6; color:#0b0d06; background:var(--accent); border-color:#1f9fb8}
 .pad button.throw{flex:1.2; color:#0b0d06; background:#ffd23f; border-color:#b8941f}
+.pad button.bomb{flex:1.2; color:#0b0d06; background:#ff5a7a; border-color:#b83a55}
 .pad button:active,.pad button.on{transform:translateY(2px); filter:brightness(1.2)}
 button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 @media (pointer:coarse){ .pad{display:flex} .legend{display:none} }
@@ -46,14 +47,17 @@ button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
   <span><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> <b>steer</b></span>
   <span><kbd>SPACE</kbd> / <kbd>↑</kbd> <b>flap</b> (tap it, don't hold)</span>
   <span><kbd>W</kbd> <b>throw lance</b> (5 per life)</span>
+  <span><kbd>S</kbd> <b>fire bomb</b> (when you hold one)</span>
   <span><kbd>P</kbd> <b>pause</b></span>
   <span><kbd>M</kbd> <b>mute</b></span>
+  <span><b>Mouse:</b> move to steer · click to flap · right-click to throw · middle-click (or click the BOMB counter) to fire a bomb</span>
 </div>
 <div class="pad" id="pad">
   <button id="bL" data-k="left" aria-label="Steer left">◀</button>
   <button id="bF" data-k="flap" class="flap" aria-label="Flap">FLAP</button>
   <button id="bR" data-k="right" aria-label="Steer right">▶</button>
   <button id="bT" data-k="throw" class="throw" aria-label="Throw lance">THROW</button>
+  <button id="bB" data-k="bomb" class="bomb" aria-label="Fire Blackhole Route bomb">BOMB</button>
 </div>
 
 <script>
@@ -81,7 +85,8 @@ const BOSSES = {
     quips:['Delivered in one day.', 'It’s always Day One.', 'Your package is on the way.', 'Free shipping. No returns.'] },
 };
 BOSSES.jensen = { name:'JENSEN', title:'THE LEATHER JACKET', color:'#a6ff3d', lance:'#d8ff9a', hp:8, acc:340, max:235, flapCd:0.2, wave:12, blurb:'FINAL BOSS · overclocks and summons GPU minions',
-  quips:['The more you buy, the more you save.', 'Accelerated computing!', 'Leather stays on.', 'This keynote has 400 slides.', 'Every pixel is generated.'] };
+  quips:['The more you buy, the more you save.', 'Accelerated computing!', 'Leather stays on.', 'This keynote has 400 slides.', 'Every pixel is generated.'],
+  lastWords:'I’ll see you back in the boardroom!' };
 const BOSS_SCALE = 1.35;
 const PLAYER_REPLIES = { elon:'Let’s test your Starlink latency.', bill:'Rolling back your update.', jeff:'Return to sender.', jensen:'Your GPUs are useless without my network.' };
 const PLAYER_WINS = { elon:'Houston, you have a problem.', bill:'Blue screen for you.', jeff:'Package delivered.', jensen:'Packet loss: 100%. GG.' };
@@ -91,6 +96,73 @@ const THROW_QUIPS = ['Catch!', 'Yeet the packet!', 'Fire and forget.', 'Sending 
 const LANCE_RANGE_T = 0.75, LANCE_SPEED = 600, RMA_T = 5, MAX_LANCES = 5, THROW_CD = 0.22;
 const QUIPS_WAVE = ['Pushing config…', 'It’s always DNS.', 'Ansible, take the wheel.', 'Idempotent and ready.', 'Have you checked the MTU?', 'BGP has converged.', 'Change window is open.'];
 const OFFS = [-W, 0, W];
+
+// <logic> pure rules and tuning data for the wave schedule, power-ups, incidents and the store.
+// tests/logic.test.js loads this block on its own, so it must not touch the canvas, audio or game state.
+const POWERUPS = {
+  bomb:  { name:'BLACKHOLE ROUTE', color:'#ff5a7a', dur:0, weight:1 },
+  zerog: { name:'ZERO-G UPLINK',   color:'#b08bff', dur:8, weight:1 },
+  root:  { name:'ROOT ACCESS',     color:'#ffd23f', dur:6, weight:1 },
+};
+const DROP_CHANCE = 0.12, PICKUP_LIFE = 8, MAX_BOMBS = 3, BOMB_FULL_PTS = 500, ZEROG_G = 0.35, BUFF_WARN = 1.5;
+// each incident names a real fault and its real remedy; t = seconds standing on it, cr = store credits
+const INCIDENTS = [
+  { name:'ARP POISONING',     fix:'DYNAMIC ARP INSPECTION ON', t:1,   pts:500,  cr:1 },
+  { name:'LOW LIGHT LEVELS',  fix:'FIBER CONNECTOR CLEANED',   t:1,   pts:500,  cr:1 },
+  { name:'DUPLEX MISMATCH',   fix:'DUPLEX MATCHED BOTH ENDS',  t:1,   pts:500,  cr:1 },
+  { name:'CRC ERRORS',        fix:'BAD OPTIC SWAPPED',         t:1,   pts:500,  cr:1 },
+  { name:'ROGUE DHCP SERVER', fix:'DHCP SNOOPING ON',          t:1.5, pts:750,  cr:2 },
+  { name:'MTU MISMATCH',      fix:'MTU MATCHED END TO END',    t:1.5, pts:750,  cr:2 },
+  { name:'BROADCAST STORM',   fix:'STORM CONTROL ON',          t:1.5, pts:750,  cr:2 },
+  { name:'NTP DRIFT',         fix:'CLOCKS RESYNCED',           t:1.5, pts:750,  cr:2 },
+  { name:'ROUTING LOOP',      fix:'REDISTRIBUTION FILTERED',   t:2,   pts:1000, cr:3 },
+  { name:'SPANNING-TREE LOOP', fix:'BPDU GUARD ON',            t:2,   pts:1000, cr:3 },
+  { name:'BGP ROUTE LEAK',    fix:'PREFIX FILTER APPLIED',     t:2,   pts:1000, cr:3 },
+  { name:'IT\'S DNS',         fix:'IT WAS DNS',                t:2,   pts:1000, cr:3 },
+  { name:'BGP HIJACK',        fix:'RPKI ORIGIN VALIDATION ON', t:2.5, pts:1500, cr:3 },
+];
+const INCIDENT_LIFE = 10, INCIDENT_GAP = [9, 15], INCIDENT_R = 26, INCIDENT_DECAY = 0.5, BOSS_CREDITS = 5, LANCE_CAP = 7;
+const STORE = [
+  { key:'bomb',   name:'BLACKHOLE ROUTE', price:4,  desc:['Bomb. Wipes every minion on', 'screen; bosses lose 1 HP.'] },
+  { key:'zerog',  name:'ZERO-G UPLINK',   price:3,  desc:['8 s of low gravity, starting', 'next wave. Lava can\'t grab you.'] },
+  { key:'root',   name:'ROOT ACCESS',     price:5,  desc:['6 s shield, starting next wave.', 'Touch a rider to beat it.'] },
+  { key:'lance',  name:'SPARE LANCE SLOT', price:6, desc:['Carry one more lance,', 'up to 7.'] },
+  { key:'bridge', name:'BRIDGE PATCH',    price:6,  desc:['Rebuilds the bridge over the', 'lava for the next wave only.'] },
+  { key:'life',   name:'1UP',             price:10, desc:['One extra life.', ''] },
+];
+// waves 3/6/9 are boss fights, 12 is the final battle; after that, endless with a boss rematch every 4th wave
+function waveKind(n) {
+  const sched = { 3: 'elon', 6: 'bill', 9: 'jeff' };
+  if (n <= 12) {
+    if (sched[n]) return { type: 'boss', bosses: [sched[n]] };
+    if (n === 12) return { type: 'final', bosses: ['jensen'] };
+  } else if (n % 4 === 0) return { type: 'boss', bosses: [['elon', 'bill', 'jeff', 'jensen'][(n / 4) % 4]], rematch: true };
+  return { type: n % 5 === 0 ? 'egg' : n % 5 === 2 ? 'survival' : 'standard' };
+}
+// the store opens after every boss wave
+const shopAfter = n => !!waveKind(n).bosses;
+const incidentCap = n => n >= 6 ? 2 : 1;
+// r in [0,1) picks a power-up in proportion to its weight
+function pickPowerup(r) {
+  const ks = Object.keys(POWERUPS), total = ks.reduce((s, k) => s + POWERUPS[k].weight, 0);
+  let x = r * total;
+  for (const k of ks) { x -= POWERUPS[k].weight; if (x < 0) return k; }
+  return ks[ks.length - 1];
+}
+// a defeated minion drops a power-up DROP_CHANCE of the time
+const rollDrop = (r1, r2) => r1 < DROP_CHANCE ? pickPowerup(r2) : null;
+// fix progress in seconds: fills while the player stands on the incident, drains at INCIDENT_DECAY otherwise
+const fixStep = (prog, need, standing, dt) => standing ? Math.min(need, prog + dt) : Math.max(0, prog - dt * INCIDENT_DECAY);
+// why a store item can't be bought right now, or null if it can; s = { credits, bombs, lanceCap, queued, bridgePatch }
+function whyNot(item, s) {
+  if (item.key === 'bomb' && s.bombs >= MAX_BOMBS) return 'BOMBS FULL';
+  if ((item.key === 'zerog' || item.key === 'root') && s.queued[item.key]) return 'ALREADY QUEUED';
+  if (item.key === 'lance' && s.lanceCap >= LANCE_CAP) return 'MAXED OUT';
+  if (item.key === 'bridge' && s.bridgePatch) return 'ALREADY QUEUED';
+  if (s.credits < item.price) return `NEED ${item.price - s.credits} MORE`;
+  return null;
+}
+// </logic>
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -128,6 +200,13 @@ const sfx = {
   throw: () => { tone(900, 0.18, 'sawtooth', 0.05, 220); tone(1400, 0.1, 'square', 0.02, 500); },
   thunk: () => tone(160, 0.09, 'square', 0.06, 70),
   siren: () => [0, 0.32, 0.64].forEach(d => { tone(440, 0.16, 'square', 0.045, 880, d); tone(880, 0.16, 'square', 0.045, 440, d + 0.16); }),
+  power: () => [660, 880, 1320].forEach((f, i) => tone(f, 0.09, 'square', 0.05, null, i * 0.06)),
+  bomb: () => { tone(120, 0.7, 'sawtooth', 0.11, 30); tone(900, 0.35, 'square', 0.04, 60); },
+  alert: () => [0, 0.14].forEach(d => tone(740, 0.08, 'square', 0.04, null, d)),
+  fix: () => [392, 523, 784].forEach((f, i) => tone(f, 0.1, 'triangle', 0.07, null, i * 0.08)),
+  buy: () => { tone(988, 0.07, 'square', 0.05); tone(1319, 0.22, 'square', 0.05, null, 0.07); },
+  deny: () => tone(150, 0.18, 'square', 0.05, 110),
+  warn: () => [0, 0.5, 1].forEach(d => tone(330, 0.07, 'square', 0.04, null, d)),
 };
 // announcer: the browser's built-in text-to-speech (a generic system voice, never an imitation of a real person)
 function announce(text) {
@@ -138,7 +217,7 @@ function announce(text) {
 // ---------- persistence ----------
 let hiscore = 0;
 try { hiscore = +localStorage.getItem('tensor-tilt-hi') || 0; } catch (e) { hiscore = 0; }
-function saveHi() { try { localStorage.setItem('tensor-tilt-hi', String(hiscore)); } catch (e) { /* storage blocked */ } }
+function saveHi() { hiBefore = hiscore; try { localStorage.setItem('tensor-tilt-hi', String(hiscore)); } catch (e) { /* storage blocked */ } }
 
 // ---------- arena ----------
 function makePlatforms(bridge) {
@@ -171,7 +250,7 @@ function stepBody(e, dt, ax, acc, max) {
   } else if (ax) e.vx += ax * acc * dt;
   e.vx = clamp(e.vx, -max, max);
   if (ax) e.face = ax;
-  if (!e.grounded) e.vy = clamp(e.vy + G * dt, MAX_UP, MAX_DOWN);
+  if (!e.grounded) e.vy = clamp(e.vy + G * (e.gm ?? 1) * dt, MAX_UP, MAX_DOWN);
   e.skid = Math.max(0, (e.skid || 0) - dt);
 
   // horizontal move + side bounces
@@ -214,13 +293,23 @@ let state = 'title', paused = false, T = 0;
 let score = 0, lives = 4, wave = 0, waveType = 'standard', waveTime = 0, survivalOK = true, eggChain = 0, nextLife = 20000;
 let player = null, enemies = [], eggs = [], ghosts = [], parts = [], pops = [];
 let thrown = [], rma = [], throwQueued = false;
+// power-ups, incidents and the store (all per run)
+let credits = 0, bombs = 0, lanceCap = MAX_LANCES, pickups = [], incidents = [], incidentT = 0, incidentTip = false;
+// mouse play: the rider steers toward the pointer while it is over the screen. on = pointer is steering;
+// idle = set at respawn so a resting pointer doesn't end respawn protection (cleared when the mouse moves or clicks)
+const mouse = { on: false, idle: false, x: 0, y: 0 }, MOUSE_DEAD = 14;
+const BOMB_HUD = { x: GAP_R + 58, y: 566, w: 70, h: 18 };
+const CHEAT = 'iamacheetah', CHEAT_BOMBS = 5;
+let cheated = false, cheatPos = 0, hiBefore = 0;
+let parting = null; // a defeated boss's last words: a speech bubble left where they fell
+let queued = {}, bridgePatch = false, bombQueued = false, flash = 0, shopSel = 0, shopT = 0, shopMsg = null;
 let wyvern = null, wyvernCount = 0, trollCd = 0, banner = null, quip = null, spawnQueue = [], spawnTimer = 0, nextWaveT = 0, shake = 0, overT = 0, boxes = [];
 
 function addScore(n, x, y, label, color = ACC) {
   score += n;
   pops.push({ x, y, text: label ? `${label} +${n}` : `+${n}`, life: 1.2, color });
   if (score >= nextLife) { nextLife += 20000; lives++; sfx.life(); pops.push({ x, y: y - 18, text: 'EXTRA LIFE', life: 1.6, color: '#ffd23f' }); }
-  if (score > hiscore) hiscore = score;
+  if (score > hiscore && !cheated) hiscore = score;
 }
 function burst(x, y, color, n = 18, sp = 160, g = 300) {
   for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), s = rand(sp * 0.3, sp); parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.4, 0.9), max: 0.9, color, size: rand(1.5, 3.5), g }); }
@@ -232,9 +321,20 @@ function spawnPlayer() {
   const ps = pads();
   let best = ps[0], bestD = -1;
   for (const p of ps) { let d = 9999; for (const e of enemies) d = Math.min(d, Math.hypot(wdx(p.x, e.x), p.y - e.y)); d += rand(0, 80); if (d > bestD) { bestD = d; best = p; } }
-  player = { x: best.x, y: best.y - 19, w: 34, h: 38, vx: 0, vy: 0, face: 1, grounded: true, inv: 4, mat: 0.7, dead: false, respawn: 0, wingT: 0, run: 0, grab: null, lances: MAX_LANCES, throwCd: 0 };
-  thrown = []; rma = [];
+  player = { x: best.x, y: best.y - 19, w: 34, h: 38, vx: 0, vy: 0, face: 1, grounded: true, inv: 4, mat: 0.7, dead: false, respawn: 0, wingT: 0, run: 0, grab: null, lances: lanceCap, throwCd: 0, zerog: 0, root: 0, gm: 1 };
+  thrown = []; rma = []; mouse.idle = true;
   burst(player.x, player.y, ACC, 22, 120, 0);
+  applyQueued();
+}
+function giveBuff(kind) {
+  const P = player, U = POWERUPS[kind];
+  P[kind] = U.dur; if (kind === 'zerog') P.grab = null;
+  pops.push({ x: P.x, y: P.y - 40, text: U.name, life: 1.6, color: U.color });
+}
+// store-bought Zero-G and Root Access wait here until the next wave starts (or the next respawn)
+function applyQueued() {
+  if (!player || player.dead) return;
+  for (const k of ['zerog', 'root']) if (queued[k]) { queued[k] = false; giveBuff(k); }
 }
 function killPlayer(why) {
   const P = player; if (P.dead) return;
@@ -245,12 +345,18 @@ function killPlayer(why) {
 function newGame() {
   ensureAudio();
   score = 0; lives = 4; nextLife = 20000; enemies = []; eggs = []; ghosts = []; parts = []; pops = []; wyvern = null; boxes = []; nextWaveT = 0; thrown = []; rma = [];
+  cheated = false; cheatPos = 0; hiBefore = hiscore; parting = null;
+  credits = 0; bombs = 0; lanceCap = MAX_LANCES; pickups = []; incidents = []; incidentT = 6; incidentTip = false; queued = {}; bridgePatch = false; bombQueued = false; flash = 0;
   bridge = true; plats = makePlatforms(true); state = 'play'; paused = false;
   startWave(1); spawnPlayer();
 }
 function startWave(n) {
   wave = n; waveTime = 0; survivalOK = true; eggChain = 0; wyvern = null; wyvernCount = 0; spawnQueue = []; spawnTimer = 0.4;
-  const keepBridge = n < 4;
+  const patched = bridgePatch && n >= 4; bridgePatch = false;
+  const keepBridge = n < 4 || patched;
+  if (patched && player && !player.dead && player.x > GAP_L - 20 && player.x < GAP_R + 20 && player.y + player.h / 2 > 538) {
+    player.grab = null; player.y = 538 - player.h / 2; player.vy = -200; player.grounded = false;
+  }
   if (bridge && !keepBridge) {
     for (let x = GAP_L; x < GAP_R; x += 6) parts.push({ x, y: 545, vx: rand(-30, 30), vy: rand(-220, -60), life: rand(0.6, 1.4), max: 1.4, color: Math.random() < 0.5 ? '#ff7a2a' : '#ffd23f', size: rand(2, 4), g: 260 });
   }
@@ -283,19 +389,11 @@ function startWave(n) {
     const sh = clamp((n - 5) * 0.08, 0, 0.6), hu = clamp((n - 2) * 0.17, 0, 0.75);
     for (let i = 0; i < count; i++) { const r = (i + 0.5) / count; spawnQueue.push(r < sh ? 'shadow' : r < sh + hu ? 'hunter' : 'bounder'); }
     spawnQueue.sort(() => Math.random() - 0.5);
-    setBanner(`WAVE ${n}`, burnedNow ? 'The bridge has melted. Mind the lava.' : waveType === 'survival' ? 'SURVIVAL WAVE — 3000 bonus if you don’t die' : 'Prepare to joust');
+    setBanner(`WAVE ${n}`, burnedNow ? 'The bridge has melted. Mind the lava.' : patched ? 'Bridge patched for this wave only.' : waveType === 'survival' ? 'SURVIVAL WAVE — 3000 bonus if you don’t die' : 'Prepare to joust');
   }
   if (kind.bosses) sfx.siren(); else sfx.wave();
   if (player && !player.dead) say(kind.bosses ? PLAYER_REPLIES[kind.bosses[0]] : QUIPS_WAVE[(n - 1) % QUIPS_WAVE.length]);
-}
-// waves 3/6/9 are boss fights, 12 is the final battle; after that, endless with a boss rematch every 4th wave
-function waveKind(n) {
-  const sched = { 3: 'elon', 6: 'bill', 9: 'jeff' };
-  if (n <= 12) {
-    if (sched[n]) return { type: 'boss', bosses: [sched[n]] };
-    if (n === 12) return { type: 'final', bosses: ['jensen'] };
-  } else if (n % 4 === 0) return { type: 'boss', bosses: [['elon', 'bill', 'jeff', 'jensen'][(n / 4) % 4]], rematch: true };
-  return { type: n % 5 === 0 ? 'egg' : n % 5 === 2 ? 'survival' : 'standard' };
+  applyQueued();
 }
 function spawnEnemy(tier) {
   const ps = pads(); let best = ps[0], bestD = -1;
@@ -310,7 +408,7 @@ function spawnEnemy(tier) {
 }
 
 // ---------- updates ----------
-// ---------- thrown lances: the player carries MAX_LANCES and can collect them again ----------
+// ---------- thrown lances: the player carries lanceCap and can collect them again ----------
 const hasLance = P => P && P.lances > 0;
 function throwLance(P) {
   if (!hasLance(P) || P.dead || P.mat > 0 || P.grab || P.throwCd > 0) return;
@@ -338,7 +436,7 @@ function updateThrown(dt) {
     rma[i] -= dt;
     if (rma[i] <= 0) {
       rma.splice(i, 1);
-      if (P && !P.dead) { P.lances = Math.min(MAX_LANCES, P.lances + 1); pops.push({ x: P.x, y: P.y - 34, text: 'RMA DELIVERED', life: 1.4, color: ACC }); sfx.egg(4); }
+      if (P && !P.dead) { P.lances = Math.min(lanceCap, P.lances + 1); pops.push({ x: P.x, y: P.y - 34, text: 'RMA DELIVERED', life: 1.4, color: ACC }); sfx.egg(4); }
     }
   }
   for (const L of thrown) {
@@ -392,16 +490,118 @@ function defeatMinion(e, mult = 1) {
   eggs.push({ x: e.x, y: e.y, w: 16, h: 14, vx: e.vx * 0.6, vy: Math.min(e.vy, 0) - 80, grounded: false, fric: 1.2, t: 0, hatchAt: Math.max(6, 10 - wave * 0.15) + rand(0, 1.5), tier: tr.next });
   ghosts.push({ x: e.x, y: e.y + 6, vx: (e.x < W / 2 ? -1 : 1) * 220, vy: -40, face: e.x < W / 2 ? -1 : 1, t: 0 });
   burst(e.x, e.y - 10, tr.color, 20, 200); sfx.win(); shake = 3;
+  dropPickup(e.x, e.y - 10, rollDrop(Math.random(), Math.random()));
+}
+
+// ---------- power-ups: dropped by defeated enemies; they drift down, hover, and wait to be grabbed ----------
+function dropPickup(x, y, kind) { if (kind) pickups.push({ kind, x: wrapX(x), y: clamp(y, 30, 520), w: 20, h: 20, t: 0, rest: false }); }
+function updatePickups(dt) {
+  for (const k of pickups) {
+    k.t += dt; if (k.t > PICKUP_LIFE) { k.gone = true; continue; }
+    if (k.rest) continue;
+    const ny = k.y + 34 * dt;
+    if (ny > 480 && !bridge && k.x > GAP_L - 10 && k.x < GAP_R + 10) { k.rest = true; continue; } // hover above open lava
+    for (const p of plats) for (const off of OFFS) if (overlapsX(k, p, off) && ny + k.h / 2 > p.y - 2 && k.y - k.h / 2 < p.y + p.h) k.rest = true;
+    if (!k.rest) k.y = ny;
+  }
+  pickups = pickups.filter(k => !k.gone);
+}
+function collectPickup(k) {
+  const U = POWERUPS[k.kind];
+  k.gone = true; sfx.power(); burst(k.x, k.y, U.color, 16, 150, 0);
+  if (k.kind !== 'bomb') { giveBuff(k.kind); return; }
+  if (bombs >= MAX_BOMBS) { addScore(BOMB_FULL_PTS, k.x, k.y - 14, 'BOMBS FULL', U.color); return; }
+  bombs++;
+  pops.push({ x: k.x, y: k.y - 16, text: `${U.name} · ${coarse ? 'BOMB' : 'S'} TO FIRE`, life: 1.8, color: U.color });
+}
+// the bomb: every minion, rebooting die-walker and package on screen is gone; each boss loses 1 HP. No dies drop.
+function fireBomb() {
+  const P = player;
+  if (!bombs || !P || P.dead || P.mat > 0) return;
+  bombs--; flash = 0.45; shake = 9; sfx.bomb(); say('Null-routed.', 1.4);
+  for (const e of enemies) {
+    if (e.gone) continue;
+    if (e.boss) { if (e.state !== 'mat') hitBoss(e, P.x, 'BLACKHOLED'); continue; }
+    const tr = TIERS[e.tier];
+    e.gone = true;
+    addScore(e.state === 'walker' ? 250 : tr.pts, e.x, e.y - 24, 'BLACKHOLED', POWERUPS.bomb.color);
+    burst(e.x, e.y, tr.color, 18, 200);
+  }
+  for (const b of boxes) { b.gone = true; burst(b.x, b.y, '#c8955a', 10, 140); }
+}
+
+// ---------- incidents: faults that appear on platforms; stand on one to fix it for points and credits ----------
+const platId = p => p.x * 1000 + p.y;
+function spawnIncident() {
+  const spots = plats.filter(p => !p.bridge && !incidents.some(i => i.plat === platId(p)));
+  const defs = INCIDENTS.filter(d => !incidents.some(i => i.def === d));
+  const p = spots[Math.floor(Math.random() * spots.length)], def = defs[Math.floor(Math.random() * defs.length)];
+  incidents.push({ def, plat: platId(p), x: p.x + rand(INCIDENT_R, p.w - INCIDENT_R), y: p.y, life: INCIDENT_LIFE, prog: 0, fixing: false });
+  sfx.alert();
+  if (!incidentTip && player && !player.dead) { incidentTip = true; say('Incident! Stand on it to fix it.', 2.4); }
+}
+function updateIncidents(dt) {
+  const P = player;
+  incidentT -= dt;
+  if (incidentT <= 0 && incidents.length < incidentCap(wave)) { spawnIncident(); incidentT = rand(INCIDENT_GAP[0], INCIDENT_GAP[1]); }
+  for (const i of incidents) {
+    i.fixing = !!P && !P.dead && P.mat <= 0 && P.grounded && Math.abs(wdx(P.x, i.x)) < INCIDENT_R && Math.abs(P.y + P.h / 2 - i.y) < 2;
+    i.prog = fixStep(i.prog, i.def.t, i.fixing, dt);
+    if (!i.fixing) i.life -= dt;
+    if (i.prog >= i.def.t) {
+      i.gone = true; credits += i.def.cr;
+      addScore(i.def.pts, i.x, i.y - 34, i.def.fix, '#4dffa0');
+      pops.push({ x: i.x, y: i.y - 70, text: `+${i.def.cr} CREDIT${i.def.cr > 1 ? 'S' : ''}`, life: 1.6, color: '#ffd23f' });
+      burst(i.x, i.y - 12, '#4dffa0', 18, 150, 0); sfx.fix();
+      if (Math.random() < 0.5) say('Ticket closed.', 1.2);
+    } else if (i.life <= 0) {
+      i.gone = true; pops.push({ x: i.x, y: i.y - 34, text: 'TICKET ESCALATED', life: 1.4, color: '#ff9a4a' });
+    }
+  }
+  if (incidents.some(i => i.gone)) { incidents = incidents.filter(i => !i.gone); incidentT = Math.max(incidentT, 4); }
+}
+
+// ---------- store: opens after each boss wave; the game is frozen while it is open ----------
+function afterWave() { if (shopAfter(wave)) openShop(); else startWave(wave + 1); }
+function openShop() { state = 'shop'; shopSel = 0; shopT = 0; shopMsg = null; keys.left = keys.right = false; flapQueued = 0; throwQueued = bombQueued = false; }
+function leaveShop() { state = 'play'; startWave(wave + 1); }
+const shopState = () => ({ credits, bombs, lanceCap, queued, bridgePatch });
+function buy(i) {
+  const it = STORE[i], why = whyNot(it, shopState());
+  if (why) { shopMsg = { text: why, color: '#ff5a7a' }; sfx.deny(); return; }
+  credits -= it.price;
+  if (it.key === 'bomb') bombs++;
+  else if (it.key === 'zerog' || it.key === 'root') queued[it.key] = true;
+  else if (it.key === 'lance') { lanceCap++; if (player && !player.dead) player.lances++; }
+  else if (it.key === 'bridge') bridgePatch = true;
+  else if (it.key === 'life') lives++;
+  shopMsg = { text: `PURCHASED: ${it.name}`, color: '#4dffa0' }; sfx.buy();
+}
+// k: 'left' | 'right' | 'ok' | 'leave'. The last slot after the items is the "start next wave" button.
+function shopInput(k) {
+  const n = STORE.length + 1;
+  if (k === 'left') shopSel = (shopSel + n - 1) % n;
+  else if (k === 'right') shopSel = (shopSel + 1) % n;
+  else if (k === 'leave') leaveShop();
+  else if (k === 'ok' && shopT > 0.4) { if (shopSel === STORE.length) leaveShop(); else buy(shopSel); }
 }
 
 function updatePlayer(dt, flapPressed, throwPressed) {
   const P = player;
   if (P.dead) { P.respawn -= dt; if (P.respawn <= 0) { if (lives > 0) spawnPlayer(); else { state = 'over'; overT = 0; saveHi(); } } return; }
   P.wingT = Math.max(0, P.wingT - dt);
-  const ax = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
+  let ax = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
+  if (!ax && !keys.left && !keys.right && mouse.on && !mouse.idle && Math.abs(mouse.x - P.x) > MOUSE_DEAD) ax = Math.sign(mouse.x - P.x);
 
   if (P.mat > 0) { P.mat -= dt; return; }
   if (P.inv > 0) { P.inv -= dt; if (ax || flapPressed) P.inv = 0; }
+  for (const k of ['zerog', 'root']) {
+    if (P[k] <= 0) continue;
+    const was = P[k]; P[k] = Math.max(0, P[k] - dt);
+    if (was > BUFF_WARN && P[k] <= BUFF_WARN) sfx.warn();
+    if (P[k] === 0) pops.push({ x: P.x, y: P.y - 40, text: `${POWERUPS[k].name} EXPIRED`, life: 1.2, color: '#9aa3bf' });
+  }
+  P.gm = P.zerog > 0 ? ZEROG_G : 1;
 
   if (P.grab) {
     const g = P.grab; g.t += dt;
@@ -418,7 +618,7 @@ function updatePlayer(dt, flapPressed, throwPressed) {
   if (hit) sfx.bump();
   if (P.grounded && Math.abs(P.vx) > 5) P.run += dt * Math.abs(P.vx) * 0.12;
 
-  if (!bridge && trollCd <= 0 && !P.grounded && P.x > GAP_L + 8 && P.x < GAP_R - 8 && P.y + P.h / 2 > 532) {
+  if (!bridge && trollCd <= 0 && P.zerog <= 0 && !P.grounded && P.x > GAP_L + 8 && P.x < GAP_R - 8 && P.y + P.h / 2 > 532) {
     P.grab = { t: 0, esc: 0 }; sfx.grab(); shake = 4; say('Thermal throttle! Flap!', 1.4);
   }
   if (inLava(P)) killPlayer('lava');
@@ -542,7 +742,8 @@ function updateBoss(e, dt) {
   stepBody(e, dt, e.dir, B.acc * (oc ? 1.5 : 1), (e.mode === 'cruise' ? B.max * 0.7 : B.max) * (oc ? 1.35 : 1));
   if (inLava(e)) { e.y = LAVA_TOP - e.h / 2 - 4; e.vy = -360; burst(e.x, LAVA_TOP, '#ff7a2a', 16, 160); }
 }
-function hitBoss(e, fromX) {
+// fromX set = hit from range (thrown lance or bomb): the player isn't bounced. label overrides the score pop text.
+function hitBoss(e, fromX, label) {
   const B = BOSSES[e.boss], P = player, byThrow = fromX != null;
   e.hp--; e.noHit = 1.2; e.tele = 0; e.dash = 0; e.oc = 0;
   const d = Math.sign(wdx(byThrow ? fromX : P.x, e.x)) || 1;
@@ -553,8 +754,11 @@ function hitBoss(e, fromX) {
     addScore(5000, e.x, e.y - 34, `${B.name} DOWN`, '#ffd23f');
     burst(e.x, e.y, B.color, 50, 320); burst(e.x, e.y, '#ffffff', 30, 240);
     sfx.life(); shake = 10; say(PLAYER_WINS[e.boss], 2.2);
+    if (B.lastWords) parting = { x: e.x, y: clamp(e.y - 70, 40, 470), text: B.lastWords, t: 3.5, color: B.color };
+    credits += BOSS_CREDITS; pops.push({ x: e.x, y: e.y - 70, text: `+${BOSS_CREDITS} CREDITS`, life: 1.8, color: '#ffd23f' });
+    dropPickup(e.x, e.y, pickPowerup(Math.random()));
   } else {
-    addScore(500, e.x, e.y - 34, byThrow ? 'BULLSEYE' : 'HIT');
+    addScore(500, e.x, e.y - 34, label || (byThrow ? 'BULLSEYE' : 'HIT'));
     e.quip = { text: BOSS_OUCH[Math.floor(Math.random() * BOSS_OUCH.length)], t: 1.2 };
   }
 }
@@ -594,6 +798,7 @@ function updateFx(dt) {
   for (const g of ghosts) { g.x += g.vx * dt; g.y += g.vy * dt; g.t += dt; }
   ghosts = ghosts.filter(g => g.x > -60 && g.x < W + 60 && g.t < 4);
   if (quip) { quip.t -= dt; if (quip.t <= 0) quip = null; }
+  if (parting) { parting.t -= dt; if (parting.t <= 0) parting = null; }
 }
 function collisions() {
   const P = player;
@@ -614,6 +819,7 @@ function collisions() {
     if (e.state === 'walker') {
       e.gone = true; addScore(250, e.x, e.y - 20, 'STOMP'); burst(e.x, e.y, TIERS[e.tier].color, 14, 140); sfx.win(); continue;
     }
+    if (P.root > 0) { if (e.boss) hitBoss(e, undefined, 'ROOTED'); else defeatMinion(e); continue; }
     const dy = (P.y + LANCE) - (e.y + (e.lance ?? LANCE)); // negative = player's lance higher
     if (!hasLance(P) && P.inv <= 0) { pops.push({ x: P.x, y: P.y - 34, text: 'UNPLUGGED!', life: 1.2, color: '#ff5a7a' }); killPlayer('lance'); return; }
     if (!hasLance(P) || Math.abs(dy) < 2.5 || (P.inv > 0 && dy > 0)) {
@@ -630,12 +836,14 @@ function collisions() {
     }
   }
   for (const L of thrown) {
-    if (L.gone || P.lances >= MAX_LANCES || L.t < 0.25 || !aabb(P, L, -6)) continue;
+    if (L.gone || P.lances >= lanceCap || L.t < 0.25 || !aabb(P, L, -6)) continue;
     const air = !L.grounded; L.gone = true; P.lances++; sfx.egg(3);
     if (air) addScore(250, P.x, P.y - 30, 'HOT SWAP', '#ffd23f');
-    else pops.push({ x: P.x, y: P.y - 30, text: `LANCE ${P.lances}/${MAX_LANCES}`, life: 1, color: ACC });
+    else pops.push({ x: P.x, y: P.y - 30, text: `LANCE ${P.lances}/${lanceCap}`, life: 1, color: ACC });
   }
   thrown = thrown.filter(L => !L.gone);
+  for (const k of pickups) if (!k.gone && aabb(P, k, -4)) collectPickup(k);
+  pickups = pickups.filter(k => !k.gone);
   for (const b of boxes) {
     if (b.gone || !aabb(P, b, -2)) continue;
     b.gone = true;
@@ -655,7 +863,7 @@ function collisions() {
     if (hasLance(P) && open && P.face === -w.face && Math.abs(tipY - beakY) < 9 && Math.abs(wdx(tipX, beakX)) < 18) {
       addScore(1000, w.x, w.y - 30, 'WYVERN', '#d58bff'); burst(w.x, w.y, '#b86bff', 40, 280); burst(w.x, w.y, '#ffffff', 20, 200);
       sfx.clang(); sfx.win(); shake = 8; wyvern = null; say('Bubble popped.');
-    } else if (P.inv <= 0 && Math.abs(wdx(P.x, w.x)) < P.w / 2 + 24 && Math.abs(P.y - w.y) < P.h / 2 + 8) {
+    } else if (P.inv <= 0 && P.root <= 0 && Math.abs(wdx(P.x, w.x)) < P.w / 2 + 24 && Math.abs(P.y - w.y) < P.h / 2 + 8) {
       killPlayer('wyvern');
     }
   }
@@ -664,14 +872,19 @@ function update(dt) {
   T += dt;
   const flapPressed = flapQueued > 0; if (flapQueued > 0) flapQueued--;
   const throwPressed = throwQueued; throwQueued = false;
+  const bombPressed = bombQueued; bombQueued = false;
   updateFx(dt);
+  flash = Math.max(0, flash - dt);
   if (state === 'over' || state === 'win') overT += dt;
+  if (state === 'shop') shopT += dt;
   if (state !== 'play') return;
   if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
   waveTime += dt; trollCd -= dt; shake = Math.max(0, shake - dt * 20);
   if (spawnQueue.length) { spawnTimer -= dt; if (spawnTimer <= 0) { spawnEnemy(spawnQueue.shift()); spawnTimer = 0.7; } }
+  if (bombPressed) fireBomb();
   updatePlayer(dt, flapPressed, throwPressed);
   for (const e of enemies) updateEnemy(e, dt);
+  updatePickups(dt); updateIncidents(dt);
   updateThrown(dt); lanceHits();
   for (const g of eggs) updateEgg(g, dt);
   for (const b of boxes) {
@@ -694,7 +907,7 @@ function update(dt) {
     setBanner('WAVE CLEAR', waveType === 'survival' && survivalOK ? 'Survival bonus 3000' : 'Next wave incoming', 2.2);
     if (player && !player.dead) say('Change window closed.');
   }
-  if (nextWaveT) { nextWaveT -= dt; if (nextWaveT <= 0) { nextWaveT = 0; startWave(wave + 1); } }
+  if (nextWaveT) { nextWaveT -= dt; if (nextWaveT <= 0) { nextWaveT = 0; afterWave(); } }
 }
 
 // ---------- drawing helpers ----------
@@ -1011,6 +1224,92 @@ function drawBox(b) {
   ctx.fillStyle = '#8a6238'; ctx.fillRect(-8, -7, 16, 1.4);
   ctx.restore();
 }
+// floating power-up badge with its name; blinks (or dims, with reduced motion) in its last 2 seconds
+function drawPickup(k) {
+  const U = POWERUPS[k.kind], bob = REDUCED ? 0 : Math.sin(T * 5 + k.x) * 3, late = PICKUP_LIFE - k.t < 2;
+  wrapped(k.x, 60, x => {
+    ctx.save(); ctx.translate(x, k.y + bob);
+    if (late) ctx.globalAlpha = REDUCED ? 0.5 : (Math.floor(T * 10) % 2 ? 0.35 : 1);
+    ctx.shadowColor = U.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = '#0e1120'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 7); ctx.fill();
+    ctx.strokeStyle = U.color; ctx.lineWidth = 2; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = U.color; ctx.strokeStyle = U.color;
+    if (k.kind === 'bomb') {
+      ctx.beginPath(); ctx.arc(-1, 2, 5, 0, 7); ctx.fill();
+      ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(2, -2); ctx.lineTo(5, -6); ctx.stroke();
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(4, -8, 2.5, 2.5);
+    } else if (k.kind === 'zerog') {
+      poly([[0, -7], [6, 0], [2.5, 0], [2.5, 6], [-2.5, 6], [-2.5, 0], [-6, 0]]); ctx.fill();
+    } else {
+      ctx.font = '11px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('#', 0.5, 1);
+    }
+    ctx.restore();
+    drawNameTag(x, k.y + bob - 21, U.name, U.color, late && REDUCED ? 0.6 : 1);
+  });
+}
+// a faulty rack on a platform: ticket name, a fix-progress bar, and a thin bar for the time left
+function drawIncident(i) {
+  const x = i.x, y = i.y, warn = '#ff9a4a';
+  ctx.save();
+  ctx.fillStyle = i.fixing ? 'rgba(77,255,160,0.5)' : 'rgba(255,154,74,0.45)'; ctx.fillRect(x - INCIDENT_R, y - 2, INCIDENT_R * 2, 2);
+  ctx.fillStyle = '#232838'; rr(x - 9, y - 24, 18, 22, 2); ctx.fill();
+  ctx.strokeStyle = '#56607a'; ctx.lineWidth = 1; ctx.stroke();
+  for (let r = 0; r < 4; r++) {
+    ctx.fillStyle = '#0d1018'; ctx.fillRect(x - 6, y - 21 + r * 5, 12, 3);
+    const lit = REDUCED || Math.floor(T * 6 + r) % 2;
+    ctx.fillStyle = i.fixing ? '#4dffa0' : lit ? '#ff3b4e' : '#4a1a20'; ctx.fillRect(x + 3, y - 20.5 + r * 5, 2, 2);
+  }
+  ctx.restore();
+}
+// drawn after the player so the label and bars stay readable; they move above the player's head while fixing
+function drawIncidentTag(i) {
+  const x = i.x, y = i.y - (i.fixing ? 24 : 0), bw = 48, k = i.prog / i.def.t, warn = '#ff9a4a';
+  ctx.fillStyle = 'rgba(6,7,13,0.85)'; ctx.fillRect(x - bw / 2 - 1, y - 36, bw + 2, 8);
+  ctx.fillStyle = '#4dffa0'; ctx.fillRect(x - bw / 2, y - 35, bw * k, 4);
+  ctx.fillStyle = warn; ctx.fillRect(x - bw / 2, y - 30.5, bw * clamp(i.life / INCIDENT_LIFE, 0, 1), 1.5);
+  drawNameTag(x, y - 45, i.fixing ? `FIXING ${Math.floor(k * 100)}%` : i.def.name, i.fixing ? '#4dffa0' : warn);
+}
+// store layout in game coordinates: one rectangle per STORE item, then the "start next wave" button
+function shopRects() {
+  const cw = 270, ch = 104, gx = 18, gy = 16, x0 = (W - 3 * cw - 2 * gx) / 2, y0 = 150;
+  const r = STORE.map((_, i) => ({ x: x0 + (i % 3) * (cw + gx), y: y0 + Math.floor(i / 3) * (ch + gy), w: cw, h: ch }));
+  r.push({ x: W / 2 - 170, y: y0 + 2 * (ch + gy) + 14, w: 340, h: 44 });
+  return r;
+}
+function drawShop() {
+  const rects = shopRects(), s = shopState();
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,7,13,0.9)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.save(); ctx.shadowColor = ACC; ctx.shadowBlur = 18;
+  ctx.font = '28px "Press Start 2P", monospace'; ctx.fillStyle = ACC; ctx.fillText('CHANGE WINDOW', W / 2, 66); ctx.restore();
+  ctx.font = '600 17px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#c4cbe0';
+  ctx.fillText(`The store is open. Spend your credits before wave ${wave + 1}.`, W / 2, 96);
+  ctx.font = '12px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(`CREDITS ${credits}`, W / 2, 128);
+  STORE.forEach((it, i) => {
+    const r = rects[i], why = whyNot(it, s), sel = i === shopSel, color = (POWERUPS[it.key] || {}).color || ACC;
+    ctx.fillStyle = '#0e1120'; rr(r.x, r.y, r.w, r.h, 6); ctx.fill();
+    ctx.strokeStyle = sel ? '#ffffff' : '#1d2238'; ctx.lineWidth = sel ? 2.5 : 1; ctx.stroke();
+    ctx.globalAlpha = why ? 0.7 : 1;
+    ctx.textAlign = 'left'; ctx.font = '10px "Press Start 2P", monospace'; ctx.fillStyle = color; ctx.fillText(it.name, r.x + 14, r.y + 26);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#ffd23f'; ctx.fillText(`${it.price} CR`, r.x + r.w - 14, r.y + 26);
+    ctx.textAlign = 'left'; ctx.font = '15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#c4cbe0';
+    ctx.fillText(it.desc[0], r.x + 14, r.y + 50); ctx.fillText(it.desc[1], r.x + 14, r.y + 68);
+    ctx.globalAlpha = 1;
+    const have = it.key === 'bomb' ? `HAVE ${bombs}/${MAX_BOMBS}` : it.key === 'lance' ? `CARRY ${lanceCap}/${LANCE_CAP}` : it.key === 'life' ? `LIVES ${lives}` : '';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillStyle = why ? '#ff5a7a' : '#4dffa0'; ctx.fillText(why || 'AVAILABLE', r.x + 14, r.y + 92);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#8b93ad'; ctx.fillText(have, r.x + r.w - 14, r.y + 92);
+  });
+  const g = rects[STORE.length], selGo = shopSel === STORE.length;
+  ctx.fillStyle = selGo ? ACC : '#0e1120'; rr(g.x, g.y, g.w, g.h, 6); ctx.fill();
+  ctx.strokeStyle = selGo ? '#ffffff' : ACC; ctx.lineWidth = selGo ? 2.5 : 1; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.font = '12px "Press Start 2P", monospace'; ctx.fillStyle = selGo ? '#06070d' : ACC;
+  ctx.fillText(`START WAVE ${wave + 1}`, W / 2, g.y + 28);
+  if (shopMsg) { ctx.font = '10px "Press Start 2P", monospace'; ctx.fillStyle = shopMsg.color; ctx.fillText(shopMsg.text, W / 2, g.y + 72); }
+  ctx.font = '600 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#8b93ad';
+  ctx.fillText(coarse ? 'Tap an item to select it, tap again to buy. ◀ ▶ and FLAP work too.' : '← → choose  ·  SPACE or ENTER buy  ·  P or ESC start the next wave  ·  or click an item twice', W / 2, g.y + 100);
+  ctx.restore();
+}
 function drawBossBars() {
   const bs = enemies.filter(e => e.boss);
   if (!bs.length) return;
@@ -1114,8 +1413,20 @@ function drawPlayer() {
     drawEngineer(P.x, P.y, P.face, { grounded: true, t: T, alpha: 0.4 + 0.6 * k }); ctx.restore(); return;
   }
   const flick = P.inv > 0 && (REDUCED || Math.floor(T * 16) % 2);
-  const armed = hasLance(P), tag = armed ? 'YOU' : rma.length ? `YOU · RMA ${Math.ceil(Math.min(...rma))}` : 'YOU · UNPLUGGED';
-  wrapped(P.x, 50, x => { drawEngineer(x, P.y, P.face, { wing: P.wingT > 0, grounded: P.grounded, run: P.run, t: T, alpha: flick ? 0.35 : 1, unarmed: !armed }); drawNameTag(x, P.y + P.h / 2 + 8, tag, armed ? ACC : '#ff5a7a'); });
+  const armed = hasLance(P);
+  let tag = armed ? 'YOU' : rma.length ? `YOU · RMA ${Math.ceil(Math.min(...rma))}` : 'YOU · UNPLUGGED';
+  if (P.root > 0) tag = `YOU · ROOT ${Math.ceil(P.root)}`; else if (P.zerog > 0 && armed) tag = `YOU · ZERO-G ${Math.ceil(P.zerog)}`;
+  // power-up auras: gold ring for Root Access, violet ring for Zero-G; they blink (or dim) when about to run out
+  for (const k of ['zerog', 'root']) {
+    if (P[k] <= 0) continue;
+    const ending = P[k] <= BUFF_WARN, a = ending ? (REDUCED ? 0.35 : (Math.floor(T * 8) % 2 ? 0.25 : 0.9)) : 0.8;
+    wrapped(P.x, 50, x => {
+      ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = POWERUPS[k].color; ctx.lineWidth = k === 'root' ? 2.5 : 1.5;
+      ctx.shadowColor = POWERUPS[k].color; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(x, P.y - 2, k === 'root' ? 29 : 34, 0, 7); ctx.stroke(); ctx.restore();
+    });
+  }
+  wrapped(P.x, 50, x => { drawEngineer(x, P.y, P.face, { wing: P.wingT > 0, grounded: P.grounded, run: P.run, t: T, alpha: flick ? 0.35 : 1, unarmed: !armed }); drawNameTag(x, P.y + P.h / 2 + 8, tag, P.root > 0 ? POWERUPS.root.color : !armed ? '#ff5a7a' : P.zerog > 0 ? POWERUPS.zerog.color : ACC); });
   if (P.skid > 0 && P.grounded) for (let i = 0; i < 2; i++) parts.push({ x: P.x - P.face * 8, y: P.y + 18, vx: rand(-40, 40), vy: rand(-60, -10), life: 0.3, max: 0.3, color: '#c9ccd3', size: 2, g: 100 });
   if (quip) drawBubble(P.x, P.y - 62, quip.text, Math.min(1, quip.t * 3), ACC);
 }
@@ -1128,18 +1439,19 @@ function drawThrown() {
     line(-16, 0, 12, 0, ACC, 2.6);
     ctx.fillStyle = 'rgba(225,245,255,0.95)'; ctx.fillRect(11, -2.7, 8, 5.4);
     ctx.restore();
-    if (!L.flying && player && !player.dead && player.lances < MAX_LANCES) drawNameTag(x, L.y - 16 + bob, 'GRAB ME', ACC);
+    if (!L.flying && player && !player.dead && player.lances < lanceCap) drawNameTag(x, L.y - 16 + bob, 'GRAB ME', ACC);
   });
 }
 // lance meter next to the score: lit = in hand, dim = thrown or melted
 function drawLanceMeter() {
   const P = player; if (!P) return;
-  const n = P.dead ? MAX_LANCES : P.lances;
-  for (let i = 0; i < MAX_LANCES; i++) {
-    const x = 108 + i * 24, y = 567, on = i < n;
+  const n = P.dead ? lanceCap : P.lances;
+  const sp = lanceCap > MAX_LANCES ? 20 : 24, len = lanceCap > MAX_LANCES ? 10 : 14;
+  for (let i = 0; i < lanceCap; i++) {
+    const x = 108 + i * sp, y = 567, on = i < n;
     ctx.save(); if (on) { ctx.shadowColor = ACC; ctx.shadowBlur = 6; }
-    line(x, y, x + 14, y, on ? ACC : '#2a3150', 2.4);
-    ctx.fillStyle = on ? 'rgba(225,245,255,0.95)' : '#2a3150'; ctx.fillRect(x + 14, y - 2.5, 6, 5);
+    line(x, y, x + len, y, on ? ACC : '#2a3150', 2.4);
+    ctx.fillStyle = on ? 'rgba(225,245,255,0.95)' : '#2a3150'; ctx.fillRect(x + len, y - 2.5, 6, 5);
     ctx.restore();
   }
   if (!P.dead && n === 0 && (REDUCED || Math.floor(T * 4) % 2)) { ctx.font = '7px "Press Start 2P", monospace'; ctx.textAlign = 'left'; ctx.fillStyle = '#ff5a7a'; ctx.fillText('UNPLUGGED', 108, 581); }
@@ -1158,6 +1470,26 @@ function drawHUD() {
   ctx.fillStyle = '#ffd23f'; ctx.fillText(`WAVE ${String(wave).padStart(2, '0')}`, W - 16, 592);
   if (muted) { ctx.textAlign = 'left'; ctx.font = '8px "Press Start 2P", monospace'; ctx.fillStyle = '#9aa3bf'; ctx.fillText('MUTED (M)', 16, 598); }
   if (waveType === 'survival' && state === 'play') { ctx.textAlign = 'left'; ctx.fillStyle = survivalOK ? '#ffd23f' : '#5c6278'; ctx.font = '8px "Press Start 2P", monospace'; ctx.fillText('SURVIVAL', GAP_R + 12, 592); }
+  if (state === 'play' || state === 'shop') {
+    ctx.textAlign = 'left'; ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffd23f'; ctx.fillText(`CR ${String(credits).padStart(2, '0')}`, GAP_R + 12, 579);
+    ctx.fillStyle = bombs ? POWERUPS.bomb.color : '#5c6278'; ctx.fillText(`BOMB×${bombs}`, GAP_R + 62, 579);
+    if (cheated) { ctx.fillStyle = '#ff9a4a'; ctx.fillText('CHEETAH MODE · NO HI SCORE', 16, 14); }
+  }
+  // active power-ups: name, seconds left and a draining bar, top left
+  const P = player;
+  if (state === 'play' && P && !P.dead) {
+    let y = cheated ? 30 : 16;
+    for (const k of ['root', 'zerog']) {
+      if (P[k] <= 0) continue;
+      const U = POWERUPS[k];
+      ctx.textAlign = 'left'; ctx.font = '8px "Press Start 2P", monospace'; ctx.fillStyle = U.color;
+      ctx.fillText(`${U.name} ${P[k].toFixed(1)}`, 16, y);
+      ctx.fillStyle = 'rgba(14,17,32,0.85)'; ctx.fillRect(16, y + 4, 150, 5);
+      ctx.fillStyle = U.color; ctx.fillRect(16, y + 4, 150 * P[k] / U.dur, 5);
+      y += 22;
+    }
+  }
 }
 function drawBanner() {
   if (!banner) return;
@@ -1202,15 +1534,16 @@ function drawTitle() {
   ctx.fillStyle = '#9aa3bf'; ctx.font = '15px "Chakra Petch", system-ui, sans-serif';
   ctx.fillText('Grab dropped dies before they reboot. Stay out of the lava. Lance the Hype Wyvern in its open beak.', W / 2, 432);
   ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'THROW lances (you carry 5), then grab them back. With none left, any hit beats you.' : 'W throws a lance. You carry 5; grab them back. With none left, any hit beats you.', W / 2, 452);
-  if (Math.floor(T * 2) % 2) { ctx.font = '14px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP TO START' : 'PRESS ENTER OR SPACE', W / 2, 482); }
-  ctx.font = '9px "Press Start 2P", monospace'; ctx.fillStyle = '#5c6278'; ctx.fillText('HI ' + String(hiscore).padStart(7, '0'), W / 2, 508);
+  ctx.fillStyle = '#4dffa0'; ctx.fillText('Stand on an incident to fix it for points and credits. Grab power-ups. Spend credits in the store after each boss.', W / 2, 472);
+  if (Math.floor(T * 2) % 2) { ctx.font = '14px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP TO START' : 'PRESS ENTER OR CLICK', W / 2, 504); }
+  ctx.font = '9px "Press Start 2P", monospace'; ctx.fillStyle = '#5c6278'; ctx.fillText('HI ' + String(hiscore).padStart(7, '0'), W / 2, 526);
 }
 function drawOver() {
   ctx.fillStyle = 'rgba(6,7,13,0.7)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
   ctx.font = '40px "Press Start 2P", monospace'; ctx.fillStyle = '#ff5a1f'; ctx.fillText('GAME OVER', W / 2, 230);
   ctx.font = '600 18px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e7ebf5';
   ctx.fillText(`Score ${score.toLocaleString()}  ·  reached wave ${wave}`, W / 2, 270);
-  ctx.fillStyle = '#9aa3bf'; ctx.fillText(score >= hiscore && score > 0 ? 'New high score. Commit and push.' : 'Rolling back. Try again.', W / 2, 296);
+  ctx.fillStyle = '#9aa3bf'; ctx.fillText(cheated ? 'Cheetah mode: this score is not saved.' : score >= hiscore && score > 0 ? 'New high score. Commit and push.' : 'Rolling back. Try again.', W / 2, 296);
   if (overT > 1 && Math.floor(T * 2) % 2) { ctx.font = '13px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP TO PLAY AGAIN' : 'PRESS ENTER TO PLAY AGAIN', W / 2, 350); }
 }
 function drawWin() {
@@ -1222,33 +1555,40 @@ function drawWin() {
   ctx.fillText('Elon, Bill, Jeff and Jensen are down. The network team rules the sky.', W / 2, 370);
   ctx.fillStyle = '#9aa3bf'; ctx.font = '600 17px "Chakra Petch", system-ui, sans-serif';
   ctx.fillText(`Score ${score.toLocaleString()}`, W / 2, 398);
-  if (overT > 1.5 && Math.floor(T * 2) % 2) { ctx.font = '12px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP FOR ENDLESS MODE' : 'PRESS ENTER FOR ENDLESS MODE', W / 2, 450); }
+  ctx.fillStyle = BOSSES.jensen.color; ctx.fillText(`JENSEN: “${BOSSES.jensen.lastWords}”`, W / 2, 426);
+  if (overT > 1.5 && Math.floor(T * 2) % 2) { ctx.font = '12px "Press Start 2P", monospace'; ctx.fillStyle = '#ffd23f'; ctx.fillText(coarse ? 'TAP FOR ENDLESS MODE' : 'PRESS ENTER FOR ENDLESS MODE', W / 2, 462); }
 }
 function render() {
   ctx.save();
   if (shake > 0 && !REDUCED) ctx.translate(rand(-shake, shake), rand(-shake, shake));
   ctx.drawImage(bg, 0, 0, W, H);
   drawLava(); drawPlats();
+  if (state === 'play') for (const i of incidents) drawIncident(i);
   for (const g of eggs) drawEgg(g);
   for (const b of boxes) drawBox(b);
   for (const g of ghosts) drawDrone(g.x, g.y, g.face, Math.sin(g.t * 20) > 0, false, 0, T);
   for (const e of enemies) drawEnemy(e);
+  if (state === 'play') for (const k of pickups) drawPickup(k);
   if (state !== 'title') { drawThrown(); drawTroll(); drawPlayer(); }
+  if (state === 'play') for (const i of incidents) drawIncidentTag(i);
+  if (parting && state === 'play') drawBubble(parting.x, parting.y, parting.text, Math.min(1, parting.t * 3), parting.color);
   if (wyvern) wrapped(wyvern.x, 60, x => drawWyvern({ ...wyvern, x }));
   for (const p of parts) { ctx.globalAlpha = clamp(p.life / p.max, 0, 1); ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center'; ctx.font = '10px "Press Start 2P", monospace';
   for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y); }
   ctx.globalAlpha = 1;
+  if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${(REDUCED ? 0.2 : 0.75) * flash / 0.45})`; ctx.fillRect(0, 0, W, H); }
   drawHUD();
   if (state === 'play') { drawRoster(); drawBossBars(); drawBanner(); }
+  if (state === 'shop') drawShop();
   if (state === 'title') drawTitle();
   if (state === 'over') drawOver();
   if (state === 'win') drawWin();
   if (paused && state === 'play') {
     ctx.fillStyle = 'rgba(6,7,13,0.6)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
     ctx.font = '28px "Press Start 2P", monospace'; ctx.fillStyle = ACC; ctx.fillText('PAUSED', W / 2, 290);
-    ctx.font = '600 16px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#c4cbe0'; ctx.fillText(coarse ? 'Tap to resume' : 'Press P to resume', W / 2, 320);
+    ctx.font = '600 16px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#c4cbe0'; ctx.fillText(coarse ? 'Tap to resume' : 'Press P or click to resume', W / 2, 320);
   }
   ctx.restore();
 }
@@ -1260,29 +1600,84 @@ const coarse = window.matchMedia && matchMedia('(pointer:coarse)').matches;
 const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
 const FLAPKEYS = new Set(['Space', 'ArrowUp', 'KeyZ']);
 const THROWKEYS = new Set(['KeyW', 'KeyX', 'ShiftLeft', 'ShiftRight']);
+const BOMBKEYS = new Set(['KeyS', 'ArrowDown']);
 function queueThrow() { if (state === 'play' && !paused) throwQueued = true; }
+function queueBomb() { if (state === 'play' && !paused) bombQueued = true; }
 function startOrFlap() {
   ensureAudio();
   if (state === 'title' || (state === 'over' && overT > 1)) { newGame(); return; }
-  if (state === 'win') { if (overT > 1.5) { state = 'play'; startWave(wave + 1); } return; }
+  if (state === 'win') { if (overT > 1.5) { state = 'play'; afterWave(); } return; }
   if (state === 'play' && !paused) flapQueued = Math.min(flapQueued + 1, 3);
+}
+// cheat: type the code during a wave for CHEAT_BOMBS bombs. A run that used it no longer counts for the high score.
+// Returns true while the key is part of the code past its 2nd letter, so its "m" doesn't also toggle mute.
+function cheatKey(ev) {
+  const ch = ev.key && ev.key.length === 1 ? ev.key.toLowerCase() : '';
+  if (state !== 'play' || ev.repeat || !ch) { if (!ev.repeat) cheatPos = 0; return false; }
+  cheatPos = ch === CHEAT[cheatPos] ? cheatPos + 1 : ch === CHEAT[0] ? 1 : 0;
+  const mid = cheatPos > 2;
+  if (cheatPos === CHEAT.length) {
+    cheatPos = 0; cheated = true; bombs += CHEAT_BOMBS; hiscore = hiBefore; sfx.life();
+    const x = player && !player.dead ? player.x : W / 2, y = player && !player.dead ? player.y - 44 : 300;
+    pops.push({ x, y, text: `CHEETAH MODE · +${CHEAT_BOMBS} BOMBS`, life: 2.2, color: '#ff9a4a' });
+  }
+  return mid;
 }
 addEventListener('keydown', ev => {
   if (KEYMAP[ev.code] || FLAPKEYS.has(ev.code) || THROWKEYS.has(ev.code) || ev.code === 'ArrowDown') ev.preventDefault();
   ensureAudio();
-  if (KEYMAP[ev.code]) keys[KEYMAP[ev.code]] = true;
+  const inCheat = cheatKey(ev);
+  if (state === 'shop' && ev.code !== 'KeyM') {
+    if (KEYMAP[ev.code]) shopInput(KEYMAP[ev.code]);
+    else if ((FLAPKEYS.has(ev.code) || ev.code === 'Enter') && !ev.repeat) shopInput('ok');
+    else if ((ev.code === 'KeyP' || ev.code === 'Escape') && !ev.repeat) shopInput('leave');
+    return;
+  }
+  if (KEYMAP[ev.code]) { keys[KEYMAP[ev.code]] = true; mouse.on = false; }
   else if (THROWKEYS.has(ev.code)) { if (!ev.repeat) queueThrow(); }
+  else if (BOMBKEYS.has(ev.code)) { if (!ev.repeat) queueBomb(); }
   else if (FLAPKEYS.has(ev.code)) { if (!ev.repeat) startOrFlap(); }
   else if (ev.code === 'Enter') { if (state !== 'play') startOrFlap(); }
   else if (ev.code === 'KeyP' || ev.code === 'Escape') { if (state === 'play') paused = !paused; }
+  else if (ev.code === 'KeyM' && inCheat) { /* the "m" in the cheat code */ }
   else if (ev.code === 'KeyM') { muted = !muted; if (muted && 'speechSynthesis' in window) speechSynthesis.cancel(); try { localStorage.setItem('aspath-muted', muted ? '1' : '0'); } catch (e) { /* storage blocked */ } }
 });
 addEventListener('keyup', ev => { if (KEYMAP[ev.code]) keys[KEYMAP[ev.code]] = false; });
 addEventListener('blur', () => { keys.left = keys.right = false; });
-cv.addEventListener('pointerdown', () => { cv.focus(); if (paused) { paused = false; return; } if (state !== 'play') startOrFlap(); });
+// in the store, a click or tap selects an item; a second one on the same item buys it
+function shopTap(ev) {
+  const r = cv.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
+  const i = shopRects().findIndex(q => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h);
+  if (i < 0) return;
+  if (i === shopSel || i === STORE.length) { shopSel = i; shopInput('ok'); } else shopSel = i;
+}
+function mouseAt(ev) {
+  const r = cv.getBoundingClientRect();
+  mouse.x = (ev.clientX - r.left) / r.width * W; mouse.y = (ev.clientY - r.top) / r.height * H; mouse.on = true; mouse.idle = false;
+}
+cv.addEventListener('pointerdown', ev => {
+  cv.focus();
+  if (paused) { paused = false; return; }
+  if (state === 'shop') { ensureAudio(); shopTap(ev); return; }
+  if (state !== 'play') { startOrFlap(); return; }
+  if (ev.pointerType !== 'mouse') return;
+  // mouse play: left = flap (or fire a bomb when clicking the BOMB counter), right = throw, middle = bomb
+  ev.preventDefault(); mouseAt(ev);
+  const b = BOMB_HUD, onBomb = mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+  if (ev.button === 2) { ensureAudio(); queueThrow(); }
+  else if (ev.button === 1 || (ev.button === 0 && onBomb)) { ensureAudio(); queueBomb(); }
+  else if (ev.button === 0) startOrFlap();
+});
+cv.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse') mouseAt(ev); });
+cv.addEventListener('pointerleave', () => { mouse.on = false; });
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+cv.addEventListener('mousedown', ev => { if (ev.button === 1) ev.preventDefault(); });
 document.querySelectorAll('#pad button').forEach(b => {
   const k = b.dataset.k;
-  const down = ev => { ev.preventDefault(); b.classList.add('on'); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ } if (k === 'flap') startOrFlap(); else if (k === 'throw') { ensureAudio(); queueThrow(); } else keys[k] = true; };
+  const down = ev => { ev.preventDefault(); b.classList.add('on'); try { b.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+    if (state === 'shop') { ensureAudio(); if (k === 'left' || k === 'right') shopInput(k); else if (k === 'flap') shopInput('ok'); return; }
+    if (k === 'bomb') { ensureAudio(); queueBomb(); return; }
+    if (k === 'flap') startOrFlap(); else if (k === 'throw') { ensureAudio(); queueThrow(); } else keys[k] = true; };
   const up = () => { b.classList.remove('on'); if (k === 'left' || k === 'right') keys[k] = false; };
   b.addEventListener('pointerdown', down);
   b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);

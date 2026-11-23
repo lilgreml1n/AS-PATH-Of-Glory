@@ -6,6 +6,10 @@ patch-cable lance, battling tech billionaires above a pit of lava.
 
 **Play:** open `index.html` in any browser, or enable GitHub Pages for this repo.
 
+![45-second highlights reel: wave 1, fixing a routing-loop incident, Root Access, a Blackhole Route bomb, the store, and the Jensen fight](assets/demo.webp)
+
+*A 45-second highlights reel, silent. It was recorded from the real game with a script playing; the scenes are staged and cut together, so it shows the features, not one continuous run.*
+
 ## Getting started
 
 ### 1. Get the game
@@ -47,13 +51,18 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 
 ## How to play
 
-| Action | Keyboard | Touch |
-|---|---|---|
-| Steer | `←` `→` or `A` `D` | ◀ ▶ buttons |
-| Flap | `Space` or `↑` (tap it, don't hold) | FLAP button |
-| Throw lance | `W` (also `X` or `Shift`) | THROW button |
-| Pause | `P` / `Esc` | tap the screen |
-| Mute | `M` | — |
+| Action | Keyboard | Mouse | Touch |
+|---|---|---|---|
+| Steer | `←` `→` or `A` `D` | move the pointer; you fly toward it | ◀ ▶ buttons |
+| Flap | `Space` or `↑` (tap it, don't hold) | left click | FLAP button |
+| Throw lance | `W` (also `X` or `Shift`) | right click | THROW button |
+| Fire a bomb (when you hold one) | `S` or `↓` | middle click, or click the `BOMB` counter | BOMB button |
+| Start / play again | `Enter` or `Space` | click | tap the screen |
+| Store | `←` `→`, `Space`, `P` | click an item twice | tap an item twice |
+| Pause | `P` / `Esc` | click to resume | tap to resume |
+| Mute | `M` | — | — |
+
+Mouse steering works while the pointer is over the game screen. You fly toward the pointer and stop when it is within 14 px of you, left or right. Pressing a steer key hands steering back to the keyboard until you move the mouse again. After a respawn, a mouse that hasn't moved doesn't steer, so respawn protection isn't used up by a resting pointer. Pausing and muting still need the keyboard.
 
 ## Rules
 
@@ -79,7 +88,62 @@ You carry **5 patch-cable lances** per life, shown as glowing plugs next to your
 9. **Nothing but beak.** Throw it into the Hype Wyvern's open beak (facing it) for +1500.
 10. **Lava eats lances.** A lance that falls into the lava is replaced 5 seconds later ("RMA DELIVERED"). With no lances left, your tag counts down `RMA 5…4…`.
 
-Losing a life gives you a fresh set of 5.
+Losing a life gives you a fresh full set (5, or more if you bought spare lance slots in the store).
+
+### Power-ups
+
+A defeated minion drops a power-up 12% of the time, and a defeated boss always drops one. Each of the three is equally likely. The badge drifts down, settles on a platform (or hovers above open lava), and vanishes after 8 seconds. Touch it to take it.
+
+| Power-up | What it does |
+|---|---|
+| **Blackhole Route** (bomb) | Stored, up to 3; a pickup when you already hold 3 pays 500 points instead. `S` fires one: every minion, rebooting die-walker and package on screen is gone, and each boss loses one health bar (+500). Minions pay their normal points (walkers 250) but drop no dies. It does not affect the Hype Wyvern or dies already on the ground. |
+| **Zero-G Uplink** | Starts at once, lasts 8 seconds. Gravity on you drops to 35%, and the lava hand can't grab you. |
+| **Root Access** | Starts at once, lasts 6 seconds. Any rider you touch is defeated whatever the heights, even if you're unplugged; a boss loses one health bar per touch. The Hype Wyvern passes through you harmlessly. Lava still kills. |
+
+A ring around you, your name tag and a bar in the top-left corner show the time left. The ring blinks and a tone sounds 1.5 seconds before it runs out. Power-ups end when you lose a life; stored bombs stay.
+
+### Incidents
+
+Every 9 to 15 seconds a faulty rack appears on a platform with a ticket name over it. **Stand on the marked strip of platform** to fix it: the green bar fills while you stand there and drains at half speed when you step off. An incident nobody is fixing expires after 10 seconds, with no penalty. One incident is open at a time, two from wave 6.
+
+A fix pays points, which count toward the extra life every 20,000, and **credits** to spend in the store.
+
+| Incident | The fix | Stand for | Points | Credits |
+|---|---|---|---|---|
+| ARP poisoning | Dynamic ARP Inspection on | 1 s | 500 | 1 |
+| Low light levels | Fiber connector cleaned | 1 s | 500 | 1 |
+| Duplex mismatch | Duplex matched on both ends | 1 s | 500 | 1 |
+| CRC errors | Bad optic swapped | 1 s | 500 | 1 |
+| Rogue DHCP server | DHCP snooping on | 1.5 s | 750 | 2 |
+| MTU mismatch | MTU matched end to end | 1.5 s | 750 | 2 |
+| Broadcast storm | Storm control on | 1.5 s | 750 | 2 |
+| NTP drift | Clocks resynced | 1.5 s | 750 | 2 |
+| Routing loop | Redistribution filtered | 2 s | 1,000 | 3 |
+| Spanning-tree loop | BPDU guard on | 2 s | 1,000 | 3 |
+| BGP route leak | Prefix filter applied | 2 s | 1,000 | 3 |
+| "It's DNS" | It was DNS | 2 s | 1,000 | 3 |
+| BGP hijack | RPKI origin validation on | 2.5 s | 1,500 | 3 |
+
+Defeating a boss also pays 5 credits.
+
+### The store ("Change Window")
+
+The store opens after every boss wave: waves 3, 6, 9 and 12, then every 4th wave in endless mode. The game is frozen while it is open. Credits last for the current run only; your count shows as `CR` at the bottom right.
+
+| Item | Price | Effect |
+|---|---|---|
+| Blackhole Route | 4 | One bomb (you can hold 3). |
+| Zero-G Uplink | 3 | Starts when the next wave starts. One can be queued. |
+| Root Access | 5 | Starts when the next wave starts. One can be queued. |
+| Spare lance slot | 6 | Carry one more lance for the rest of the run, up to 7. |
+| Bridge patch | 6 | The bridge over the lava is back for the next wave only. |
+| 1UP | 10 | One extra life. |
+
+`←` `→` choose, `Space` or `Enter` buys, `P` or `Esc` starts the next wave. With a mouse or on touch, click or tap an item to select it and again to buy; the ◀ ▶ and FLAP buttons work too.
+
+### Cheat code
+
+Type `iamacheetah` during a wave for 5 bombs (this can take you past the usual 3). The screen then shows `CHEETAH MODE`, and that run's score no longer counts for the high score.
 
 ### Who's who
 
@@ -97,7 +161,7 @@ Details: two lances within 2.5 px count as a tie. Respawn protection lasts until
 | 3 | **Elon — The Rocketeer** | telegraphs, then rocket-dashes across the screen |
 | 6 | **Bill — The Windows Wizard** | teleports in above you |
 | 9 | **Jeff — The Prime Courier** | drops packages, calls in same-day backup |
-| 12 | **Jensen — The Leather Jacket** (final boss) | overclocks and summons GPU minions |
+| 12 | **Jensen — The Leather Jacket** (final boss) | overclocks and summons GPU minions; when beaten he says "I'll see you back in the boardroom!" |
 
 Bosses alternate between chasing you from above and dipping low. Hit them from above while they're low. Beat Jensen to win; then keep going in endless mode with boss rematches every 4th wave.
 
@@ -121,7 +185,13 @@ All sounds are original 8-bit tones synthesized at run time with the Web Audio A
 | thunk | thrown lance hits a platform or a boss |
 | siren | a boss wave starts |
 | announcer | a boss wave starts: the boss's name and title, spoken by your browser's built-in text-to-speech voice. That's a generic system voice, not an imitation of anyone, and it's silent when muted or where the browser has no speech. |
-| life jingle | extra life, boss defeated, victory |
+| life jingle | extra life, boss defeated, victory, cheat code |
+| power (rising three notes) | you take a power-up |
+| bomb (low boom) | you fire a Blackhole Route |
+| alert (two beeps) | an incident appears |
+| fix (three-note chime) | you fix an incident |
+| warn (three low beeps) | Zero-G Uplink or Root Access is about to run out |
+| buy / deny | a store purchase goes through / is refused |
 
 ## Project layout
 
@@ -129,11 +199,20 @@ All sounds are original 8-bit tones synthesized at run time with the Web Audio A
 src/game.html   source (an HTML fragment, also publishable as a claude.ai Artifact)
 build.sh        wraps src/game.html into a full HTML document
 index.html      built, playable game (commit this so GitHub Pages can serve it)
+tests/          logic.test.js (unit tests) and smoke.js (headless run of the real game script)
 ```
 
 Edit `src/game.html`, then run `./build.sh` to regenerate `index.html`.
 
-Project rules live in [CONSTITUTION.md](CONSTITUTION.md), including what has and hasn't been verified yet. Unit tests (`node --test tests/`) are not written yet; see its *Current status* section.
+Project rules live in [CONSTITUTION.md](CONSTITUTION.md), including what has and hasn't been verified yet. ### Tests
+
+```sh
+node --test          # unit tests for the pure rules: wave schedule, power-up drops, incidents, store
+node tests/smoke.js  # runs the real game script with the browser stubbed and checks the rules above
+node tests/browser.js  # plays the built game in headless Firefox: real keys, real mouse, and a bot that plays a whole run (about 8 minutes; needs Firefox)
+```
+
+The first two need only Node.js 18 or later. The unit tests cover the newer rules; the older ones (height rule, wrap distance, die points, extra lives, mute) are not unit-tested yet. See the constitution's *Current status* section.
 
 ## Deploy to GitHub Pages
 
