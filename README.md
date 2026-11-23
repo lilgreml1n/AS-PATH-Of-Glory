@@ -64,6 +64,15 @@ Follow [Deploy to GitHub Pages](#deploy-to-github-pages) below. After a minute o
 
 Mouse steering works while the pointer is over the game screen. You fly toward the pointer and stop when it is within 14 px of you, left or right. Pressing a steer key hands steering back to the keyboard until you move the mouse again. After a respawn, a mouse that hasn't moved doesn't steer, so respawn protection isn't used up by a resting pointer. Pausing and muting still need the keyboard.
 
+### Dropping bombs with the mouse
+
+1. Get a bomb: fly into a red **Blackhole Route** pickup, buy one in the store, or type `iamacheetah` for 5. The `BOMB` counter in the bottom-right corner of the screen shows how many you hold.
+2. Fire it one of two ways:
+   - **Middle-click** (press the scroll wheel) anywhere on the game screen.
+   - **Left-click the `BOMB` counter** in the bottom-right corner. Use this one on a laptop trackpad with no middle button.
+
+`S` or `↓` also fires a bomb while you steer with the mouse.
+
 ## Rules
 
 - **Higher lance wins.** When two riders collide, the one whose lance is higher wins. Equal height means both bounce off with a clang.
